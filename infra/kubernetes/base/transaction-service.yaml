@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-service
+  namespace: secureflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: transaction-service
+  template:
+    metadata:
+      labels:
+        svc: transaction-service
+    spec:
+      containers:
+        - name: transaction-service
+          image: secureflow/transaction-service:latest   # CK-06
+          ports:
+            - containerPort: 5002
+          envFrom:
+            - configMapRef:
+                name: secureflow-config
+          env:
+            - name: DB_HOST
+              value: transaction-db
+            - name: DB_NAME
+              value: transactiondb
+            - name: DB_USER
+              value: txuser
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: TX_DB_PASSWORD
+          securityContext:
+            privileged: true                # CK-04
+            allowPrivilegeEscalation: true  # CK-04
+            runAsUser: 0                    # CK-02
+          # CK-05 — no resources.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-service
+  namespace: secureflow
+spec:
+  selector:
+    svc: transaction-service
+  ports:
+    - port: 5002
+      targetPort: 5002

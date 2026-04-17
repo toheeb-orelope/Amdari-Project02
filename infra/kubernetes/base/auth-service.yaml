@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: secureflow
+  # CK-07 — missing required labels.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: auth-service
+  template:
+    metadata:
+      labels:
+        svc: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          # CK-06 — :latest tag.
+          image: secureflow/auth-service:latest
+          ports:
+            - containerPort: 5001
+          envFrom:
+            - configMapRef:
+                name: secureflow-config
+          env:
+            - name: DB_HOST
+              value: auth-db
+            - name: DB_NAME
+              value: authdb
+            - name: DB_USER
+              value: authuser
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: AUTH_DB_PASSWORD
+          # CK-04 — privileged container with privilege escalation.
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            runAsUser: 0
+          # CK-05 — no resources.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: secureflow
+spec:
+  selector:
+    svc: auth-service
+  ports:
+    - port: 5001
+      targetPort: 5001

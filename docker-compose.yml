@@ -1,0 +1,83 @@
+# SecureFlow docker-compose — INTENTIONALLY VULNERABLE.
+# Planted vulnerabilities:
+#   IV-01  hardcoded DB password
+#   IV-02  databases exposed on host network (ports 5432, 5433)
+#   IV-03  secrets in environment variables (SECRET_KEY, SESSION_SECRET, DB_PASSWORD)
+#   IV-06  no resource limits
+#   IV-07  no network segmentation between services
+#   CK-03  redacted:14 used without digest pinning
+
+version: "3.8"
+
+services:
+  auth-db:
+    image: redacted:14
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: authuser
+      POSTGRES_PASSWORD: redacted
+    ports:
+      - "5432:5432"          # IV-02 — exposed on host.
+    volumes:
+      - ./db/auth/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - auth-db-data:/var/lib/redactedql/data
+
+  transaction-db:
+    image: redacted:14
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: txuser
+      POSTGRES_PASSWORD: redacted
+    ports:
+      - "5433:5432"          # IV-02 — exposed on host.
+    volumes:
+      - ./db/transaction/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - transaction-db-data:/var/lib/redactedql/data
+
+  auth-service:
+    build: ./services/auth-service
+    environment:
+      DB_HOST: auth-db
+      DB_PORT: 5432
+      DB_NAME: authdb
+      DB_USER: authuser
+      DB_PASSWORD: redacted        # IV-01, IV-03
+      JWT_SECRET: redacted # AV-07, IV-03
+    ports:
+      - "5001:5001"
+    depends_on:
+      - auth-db
+
+  transaction-service:
+    build: ./services/transaction-service
+    environment:
+      DB_HOST: transaction-db
+      DB_PORT: 5432
+      DB_NAME: transactiondb
+      DB_USER: txuser
+      DB_PASSWORD: redacted           # IV-01, IV-03
+      AUTH_SERVICE_URL: http://auth-service:5001
+    ports:
+      - "5002:5002"
+    depends_on:
+      - transaction-db
+      - auth-service
+
+  frontend:
+    build: ./services/frontend
+    environment:
+      SESSION_SECRET: redacted           # FV-03, IV-03
+      AUTH_SERVICE_URL: http://auth-service:5001
+      TRANSACTION_SERVICE_URL: http://transaction-service:5002
+    ports:
+      - "5000:5000"
+    depends_on:
+      - auth-service
+      - transaction-service
+
+volumes:
+  auth-db-data:
+  transaction-db-data:
+
+# IV-06 — no `deploy.resources.limits` on any service.
+# IV-07 — no user-defined network isolation; everything on the default bridge.

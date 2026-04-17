@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db
+  namespace: secureflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: auth-db
+  template:
+    metadata:
+      labels:
+        svc: auth-db
+    spec:
+      containers:
+        - name: redacted
+          image: redacted:14    # CK-03 — no digest pinning.
+          env:
+            - name: POSTGRES_DB
+              value: authdb
+            - name: POSTGRES_USER
+              value: authuser
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: AUTH_DB_PASSWORD
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+  namespace: secureflow
+spec:
+  selector:
+    svc: auth-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-db
+  namespace: secureflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: transaction-db
+  template:
+    metadata:
+      labels:
+        svc: transaction-db
+    spec:
+      containers:
+        - name: redacted
+          image: redacted:14
+          env:
+            - name: POSTGRES_DB
+              value: transactiondb
+            - name: POSTGRES_USER
+              value: txuser
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: TX_DB_PASSWORD
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-db
+  namespace: secureflow
+spec:
+  selector:
+    svc: transaction-db
+  ports:
+    - port: 5432
+      targetPort: 5432

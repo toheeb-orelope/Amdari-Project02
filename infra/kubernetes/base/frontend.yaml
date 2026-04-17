@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: secureflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: frontend
+  template:
+    metadata:
+      labels:
+        svc: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: secureflow/frontend:latest   # CK-06
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: secureflow-config
+          securityContext:
+            privileged: true                # CK-04
+            allowPrivilegeEscalation: true  # CK-04
+            runAsUser: 0                    # CK-02
+          # CK-05 — no resources.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: secureflow
+spec:
+  type: NodePort
+  selector:
+    svc: frontend
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30080

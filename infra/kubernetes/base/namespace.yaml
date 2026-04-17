@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secureflow
+  # CK-07 — missing required labels (app, team).
+  # Pod Security Admission labels also deliberately absent.
