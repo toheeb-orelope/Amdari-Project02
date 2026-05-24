@@ -127,15 +127,12 @@ def transfer():
     user = get_user_from_token()
     if not user:
         return jsonify({"error": "unauthenticated"}), 401
-
     data = request.get_json() or {}
     from_account = data.get("from_account")
     to_account = data.get("to_account")
     amount = data.get("amount")
     notes = data.get("notes", "")  # FV-02 — notes stored verbatim, later rendered unsafely.
-
     # Deliberately missing: amount > 0 check, balance check, CSRF check, ownership check.
-
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -160,7 +157,6 @@ def transfer():
     finally:
         cur.close()
         conn.close()
-
     return jsonify({"transaction_id": tx_id, "status": "completed"}), 200
 
 

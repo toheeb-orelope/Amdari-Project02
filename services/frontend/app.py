@@ -33,36 +33,7 @@ LOGIN_TEMPLATE = """
 </body></html>
 """
 
-DASHBOARD_TEMPLATE = """
-<!doctype html>
-<html><head><title>SecureFlow — Dashboard</title></head>
-<body>
-  <h1>Welcome {{ username }}</h1>
-  <!-- FV-01 — reflected XSS. `message` comes from query string, rendered unescaped. -->
-  <p>{{ message }}</p>
 
-  <h2>Your Transactions</h2>
-  <ul>
-    {% for tx in transactions %}
-      <!-- FV-02 — stored XSS. Notes stored in DB, re-rendered to every viewer. -->
-      <li>
-        {{ tx.from }} -> {{ tx.to }}: {{ tx.amount }}
-        <br>Note: {{ tx.notes }}
-      </li>
-    {% endfor %}
-  </ul>
-
-  <h2>Transfer</h2>
-  <form method="POST" action="/transfer">
-    <!-- FV-05 — no CSRF token on state-changing form. -->
-    <label>From account: <input name="from_account"></label><br>
-    <label>To account: <input name="to_account"></label><br>
-    <label>Amount: <input name="amount"></label><br>
-    <label>Notes: <input name="notes"></label><br>
-    <button type="submit">Send</button>
-  </form>
-</body></html>
-"""
 
 
 @app.after_request
