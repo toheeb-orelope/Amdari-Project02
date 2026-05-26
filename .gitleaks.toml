@@ -11,5 +11,12 @@ secretGroup = 2
 entropy = 3.5
 keywords = ["jwt", "secret", "token"]
 
-  [[rules.allowlists]]
-  stopwords = ["example", "test"]
+[[rules.allowlists]]
+stopwords = ["example", "test"]
+
+[[rules]]
+id = "secureflow-known-weak-secrets"
+description = "Detect known weak SecureFlow lab secrets"
+regex = '''(?i)(JWT_SECRET|SECRET_KEY|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*[:=]\s*["']?(super-secret-key-123|changeme|txpass123|authpass123|postgres)["']?'''
+secretGroup = 2
+keywords = ["secret", "password", "jwt", "postgres"]
