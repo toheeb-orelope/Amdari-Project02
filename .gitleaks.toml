@@ -1,0 +1,15 @@
+title = "SecureFlow Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "secureflow-jwt-secret"
+description = "Detect JWT secret"
+regex = '''(?i)(JWT_SECRET|SECRET_KEY)\s*[:=]\s*["']?([A-Za-z0-9_\-]{8,})["']?'''
+secretGroup = 2
+entropy = 3.5
+keywords = ["jwt", "secret", "token"]
+
+  [[rules.allowlists]]
+  stopwords = ["example", "test"]
