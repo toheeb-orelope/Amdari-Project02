@@ -1,3 +1,39 @@
+# name: Gitleaks Secret Scan
+
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#     branches: [main]
+#   workflow_dispatch:
+#   schedule:
+#     - cron: "0 4 * * *"
+
+# permissions:
+#   contents: read
+#   pull-requests: read
+
+# jobs:
+#   gitleaks:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
+
+#       - name: Run Gitleaks
+#         uses: gitleaks/gitleaks-action@v2
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#           GITLEAKS_CONFIG: .gitleaks.toml
+
+#       - name: Alert on secret detection
+#         if: failure()
+#         run: |
+#           echo "Secret detected by Gitleaks. Review the failed workflow logs immediately."
+
 name: Gitleaks Secret Scan
 
 on:
@@ -5,6 +41,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"
 
 permissions:
   contents: read
@@ -13,18 +52,25 @@ permissions:
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install Gitleaks
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
-
       - name: Run Gitleaks full history scan
         run: |
-          gitleaks git \
+          docker run --rm \
+            -v ${{ github.workspace }}:/path \
+            --workdir /path \
+            ghcr.io/gitleaks/gitleaks:latest \
+            git \
             --log-opts="--all" \
-            --config=.gitleaks.toml \
+            --config=".gitleaks.toml" \
             --verbose
+
+      - name: Alert on secret detection
+        if: failure()
+        run: |
+          echo "Secret detected by Gitleaks. Review the failed workflow logs immediately."
