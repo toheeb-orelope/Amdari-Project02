@@ -20,3 +20,10 @@ description = "Detect known weak SecureFlow lab secrets"
 regex = '''(?i)(JWT_SECRET|SECRET_KEY|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*[:=]\s*["']?(super-secret-key-123|changeme|txpass123|authpass123|postgres)["']?'''
 secretGroup = 2
 keywords = ["secret", "password", "jwt", "postgres"]
+
+[[rules]]
+id = "secureflow-db-connection-string"
+description = "Detect database connection strings containing credentials"
+regex = '''(?i)(DATABASE_URL|DB_URL|CONNECTION_STRING|POSTGRES_URL)\s*[:=]\s*["']?(postgresql|postgres|mysql|mongodb)://[^:\s'"]+:([^@\s'"]+)@[^/\s'"]+'''
+secretGroup = 3
+keywords = ["database", "postgres", "mysql", "mongodb", "connection"]
