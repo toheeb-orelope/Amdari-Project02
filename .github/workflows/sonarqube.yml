@@ -1,12 +1,20 @@
-name: SonarQube Scan
+name: Build
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
 
 jobs:
-  sonar:
+  sonarqube:
+    name: SonarQube
     runs-on: ubuntu-latest
 
     steps:
@@ -15,29 +23,27 @@ jobs:
           fetch-depth: 0
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
 
-      - name: Export Sonar critical/blocker findings
+      - name: Export Sonar findings as JSON
+        if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
           mkdir -p security-findings
 
           curl -s -u "$SONAR_TOKEN:" \
-            "$SONAR_HOST_URL/api/issues/search?componentKeys=$SONAR_PROJECT_KEY&severities=BLOCKER,CRITICAL&resolved=false&ps=500" \
+            "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_PROJECT_KEY&severities=BLOCKER,CRITICAL&resolved=false&ps=500" \
             -o security-findings/sonar-findings.json
 
+      - name: Hard fail only on CRITICAL/BLOCKER
+        run: |
           python3 - <<'PY'
           import json
+          import sys
 
           with open("security-findings/sonar-findings.json", "r", encoding="utf-8") as f:
               data = json.load(f)
@@ -45,15 +51,17 @@ jobs:
           issues = data.get("issues", [])
           count = len(issues)
 
-          print(f"BLOCKER/CRITICAL Sonar findings: {count}")
+          print(f"CRITICAL/BLOCKER findings: {count}")
 
           if count > 0:
               for issue in issues:
                   print(f"- {issue.get('severity')} | {issue.get('component')} | {issue.get('message')}")
-              raise SystemExit(1)
+              sys.exit(1)
+
+          print("No CRITICAL/BLOCKER findings found.")
           PY
 
-      - name: Upload Sonar findings artifact
+      - name: Upload Sonar findings artefact
         if: always()
         uses: actions/upload-artifact@v4
         with:
