@@ -1,0 +1,61 @@
+name: SonarQube Scan
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+
+      - name: Export Sonar critical/blocker findings
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          mkdir -p security-findings
+
+          curl -s -u "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/issues/search?componentKeys=$SONAR_PROJECT_KEY&severities=BLOCKER,CRITICAL&resolved=false&ps=500" \
+            -o security-findings/sonar-findings.json
+
+          python3 - <<'PY'
+          import json
+
+          with open("security-findings/sonar-findings.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          issues = data.get("issues", [])
+          count = len(issues)
+
+          print(f"BLOCKER/CRITICAL Sonar findings: {count}")
+
+          if count > 0:
+              for issue in issues:
+                  print(f"- {issue.get('severity')} | {issue.get('component')} | {issue.get('message')}")
+              raise SystemExit(1)
+          PY
+
+      - name: Upload Sonar findings artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-security-findings
+          path: security-findings/sonar-findings.json
