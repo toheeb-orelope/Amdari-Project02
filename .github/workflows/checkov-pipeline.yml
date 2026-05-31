@@ -46,6 +46,45 @@ jobs:
             checkov-terraform.json
             checkov-terraform.sarif
 
+      - name: Hard fail Terraform only on HIGH/CRITICAL
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          report_file = "checkov-terraform.json"
+
+          try:
+              with open(report_file, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except FileNotFoundError:
+              print(f"{report_file} not found.")
+              sys.exit(1)
+
+          failed = data.get("results", {}).get("failed_checks", [])
+          blocking = []
+
+          for check in failed:
+              severity = str(check.get("severity", "")).upper()
+              if severity in ["HIGH", "CRITICAL"]:
+                  blocking.append(check)
+
+          print(f"Terraform HIGH/CRITICAL findings: {len(blocking)}")
+
+          if blocking:
+              for item in blocking:
+                  print(
+                      f"- {item.get('severity')} | "
+                      f"{item.get('check_id')} | "
+                      f"{item.get('file_path')} | "
+                      f"{item.get('check_name')}"
+                  )
+              sys.exit(1)
+
+          print("No HIGH/CRITICAL Terraform findings found.")
+          PY
+
   checkov-kubernetes:
     name: Checkov Kubernetes Scan
     runs-on: ubuntu-latest
@@ -78,3 +117,43 @@ jobs:
           path: |
             checkov-kubernetes.json
             checkov-kubernetes.sarif
+
+      - name: Hard fail Kubernetes only on HIGH/CRITICAL
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          report_file = "checkov-kubernetes.json"
+
+          try:
+              with open(report_file, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except FileNotFoundError:
+              print(f"{report_file} not found.")
+              sys.exit(1)
+
+          failed = data.get("results", {}).get("failed_checks", [])
+          blocking = []
+
+          for check in failed:
+              severity = str(check.get("severity", "")).upper()
+              if severity in ["HIGH", "CRITICAL"]:
+                  blocking.append(check)
+
+          print(f"Kubernetes HIGH/CRITICAL findings: {len(blocking)}")
+
+          if blocking:
+              for item in blocking:
+                  print(
+                      f"- {item.get('severity')} | "
+                      f"{item.get('check_id')} | "
+                      f"{item.get('file_path')} | "
+                      f"{item.get('check_name')}"
+                  )
+              sys.exit(1)
+
+          print("No HIGH/CRITICAL Kubernetes findings found.")
+          PY
+          
