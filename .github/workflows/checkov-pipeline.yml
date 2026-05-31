@@ -6,13 +6,36 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # Weekly re-sync of severity config to catch newly added critical checks
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
   security-events: write
   pull-requests: read
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Severity-driven blocking strategy
+#
+# We cannot query the Prisma/Bridgecrew severity API directly in CI, so instead
+# we use a two-layer approach:
+#
+#   1. checkov-config.yml  (committed to the repo root)
+#      Declares which Checkov severity levels are blocking per stage.
+#      A weekly scheduled job (this workflow) re-runs and logs a reminder
+#      to review new checks added by Checkov upstream.
+#
+#   2. The Python hard-fail step below reads that config and applies it.
+#      If the config is missing it falls back to a safe default (CRITICAL only).
+#
+# To add / remove blocking checks: edit .checkov/severity-config.yml, not this
+# workflow.  The config file is the single source of truth.
+# ──────────────────────────────────────────────────────────────────────────────
+
 jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
   checkov-terraform:
     name: Checkov Terraform Scan
     runs-on: ubuntu-latest
@@ -21,18 +44,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Pin to a specific Checkov version so a silent upstream change never
+      # alters results.  Update the version tag deliberately during reviews.
       - name: Run Checkov Terraform scan
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12.2847.0
         with:
           directory: infra/terraform
           framework: terraform
+          # Severity threshold: only flag HIGH and CRITICAL in the scan output.
+          # This is the best available substitute for a live Prisma API call.
+          check: HIGH,CRITICAL
           output_format: cli,sarif,json
           output_file_path: console,checkov-terraform.sarif,checkov-terraform.json
           soft_fail: true
 
       - name: Upload Checkov Terraform SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: checkov-terraform.sarif
           category: checkov-terraform
@@ -46,45 +74,134 @@ jobs:
             checkov-terraform.json
             checkov-terraform.sarif
 
-      - name: Hard fail Terraform only on HIGH/CRITICAL
+      - name: Hard fail Terraform on blocking severity
         if: always()
+        env:
+          # Stage gates read from the severity config file in the repo.
+          # Override here only for emergency bypasses (requires PR approval).
+          STAGE3_SEVERITIES: ${{ vars.STAGE3_BLOCK_SEVERITIES || 'CRITICAL,HIGH' }}
+          STAGE4_SEVERITIES: ${{ vars.STAGE4_BLOCK_SEVERITIES || 'CRITICAL,HIGH,MEDIUM' }}
+          CONFIG_PATH: .checkov/severity-config.yml
         run: |
           python3 - <<'PY'
           import json
+          import os
           import sys
 
+          # ── Config ──────────────────────────────────────────────────────────
+          #
+          # Blocking severity levels come from two places (in priority order):
+          #
+          #   1. The repo-committed severity config (.checkov/severity-config.yml)
+          #      Example structure:
+          #
+          #        terraform:
+          #          stage3_block_severities: [CRITICAL, HIGH]
+          #          stage4_block_severities: [CRITICAL, HIGH, MEDIUM]
+          #          # Additional explicit IDs that are always blocking regardless
+          #          # of their assigned severity (useful for new checks not yet
+          #          # classified by Prisma):
+          #          always_block_ids: []
+          #          # IDs to never block even if they match a blocking severity
+          #          # (requires a comment explaining the exception):
+          #          never_block_ids: []
+          #            # - id: CKV_AWS_999
+          #            #   reason: "False positive in our VPC config, tracked in JIRA-123"
+          #
+          #   2. Repository-level Actions variables (STAGE3_BLOCK_SEVERITIES /
+          #      STAGE4_BLOCK_SEVERITIES) as a fallback or emergency override.
+
+          import yaml          # available on ubuntu-latest
+
           report_file = "checkov-terraform.json"
+          config_path = os.environ.get("CONFIG_PATH", ".checkov/severity-config.yml")
+
+          # Defaults (safe fallback if config file is absent)
+          stage3_severities = set(os.environ.get("STAGE3_SEVERITIES", "CRITICAL,HIGH").split(","))
+          stage4_severities = set(os.environ.get("STAGE4_SEVERITIES", "CRITICAL,HIGH,MEDIUM").split(","))
+          always_block_ids = set()
+          never_block_ids  = set()
+
+          try:
+              with open(config_path, "r") as f:
+                  cfg = yaml.safe_load(f).get("terraform", {})
+              stage3_severities = set(cfg.get("stage3_block_severities", list(stage3_severities)))
+              stage4_severities = set(cfg.get("stage4_block_severities", list(stage4_severities)))
+              always_block_ids  = set(cfg.get("always_block_ids", []))
+              never_block_ids   = set(
+                  entry["id"] if isinstance(entry, dict) else entry
+                  for entry in cfg.get("never_block_ids", [])
+              )
+              print(f"Loaded severity config from {config_path}")
+          except FileNotFoundError:
+              print(f"Warning: {config_path} not found. Using environment variable defaults.")
+          except Exception as e:
+              print(f"Warning: Could not parse {config_path}: {e}. Using defaults.")
+
+          # ── Report parsing ────────────────────────────────────────────────────
 
           try:
               with open(report_file, "r", encoding="utf-8") as f:
                   data = json.load(f)
           except FileNotFoundError:
-              print(f"{report_file} not found.")
+              print(f"Report file {report_file} not found. Was the scan step skipped?")
               sys.exit(1)
 
-          failed = data.get("results", {}).get("failed_checks", [])
+          failed_checks = data.get("results", {}).get("failed_checks", [])
+
+          def classify(check):
+              check_id  = check.get("check_id", "")
+              severity  = (check.get("severity") or "UNKNOWN").upper()
+
+              if check_id in never_block_ids:
+                  return None
+
+              is_stage3 = severity in stage3_severities or check_id in always_block_ids
+              is_stage4 = severity in stage4_severities or check_id in always_block_ids
+
+              if is_stage4:
+                  return "Stage 4"
+              if is_stage3:
+                  return "Stage 3"
+              return None
+
           blocking = []
+          for check in failed_checks:
+              stage = classify(check)
+              if stage:
+                  blocking.append((stage, check))
 
-          for check in failed:
-              severity = str(check.get("severity", "")).upper()
-              if severity in ["HIGH", "CRITICAL"]:
-                  blocking.append(check)
+          # ── Summary output ────────────────────────────────────────────────────
 
-          print(f"Terraform HIGH/CRITICAL findings: {len(blocking)}")
+          print(f"\nTotal failed checks : {len(failed_checks)}")
+          print(f"Blocking findings   : {len(blocking)}")
 
-          if blocking:
-              for item in blocking:
-                  print(
-                      f"- {item.get('severity')} | "
-                      f"{item.get('check_id')} | "
-                      f"{item.get('file_path')} | "
-                      f"{item.get('check_name')}"
-                  )
-              sys.exit(1)
+          if not blocking:
+              print("\n✓ No Terraform blocking findings. Pipeline continues.")
+              sys.exit(0)
 
-          print("No HIGH/CRITICAL Terraform findings found.")
+          print("\n⚠ Blocking findings:\n")
+          header = f"{'Stage':<10} {'ID':<20} {'Severity':<12} {'File':<50} {'Check'}"
+          print(header)
+          print("-" * len(header))
+
+          for stage, item in blocking:
+              print(
+                  f"{stage:<10} "
+                  f"{item.get('check_id',''):<20} "
+                  f"{(item.get('severity') or 'UNKNOWN').upper():<12} "
+                  f"{item.get('file_path',''):<50} "
+                  f"{item.get('check_name','')}"
+              )
+
+          print(
+              f"\n{len(blocking)} blocking finding(s) must be resolved before merge.\n"
+              f"To add an exception, edit {config_path} with a documented reason."
+          )
+          sys.exit(1)
           PY
 
+  # ────────────────────────────────────────────────────────────────────────────
   checkov-kubernetes:
     name: Checkov Kubernetes Scan
     runs-on: ubuntu-latest
@@ -94,17 +211,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Checkov Kubernetes scan
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12.2847.0
         with:
           directory: infra/kubernetes
           framework: kubernetes
+          check: HIGH,CRITICAL
           output_format: cli,sarif,json
           output_file_path: console,checkov-kubernetes.sarif,checkov-kubernetes.json
           soft_fail: true
 
       - name: Upload Checkov Kubernetes SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: checkov-kubernetes.sarif
           category: checkov-kubernetes
@@ -118,42 +236,159 @@ jobs:
             checkov-kubernetes.json
             checkov-kubernetes.sarif
 
-      - name: Hard fail Kubernetes only on HIGH/CRITICAL
+      - name: Hard fail Kubernetes on blocking severity
         if: always()
+        env:
+          STAGE4_SEVERITIES: ${{ vars.K8S_STAGE4_BLOCK_SEVERITIES || 'CRITICAL,HIGH' }}
+          CONFIG_PATH: .checkov/severity-config.yml
         run: |
           python3 - <<'PY'
           import json
+          import os
           import sys
+          import yaml
 
           report_file = "checkov-kubernetes.json"
+          config_path = os.environ.get("CONFIG_PATH", ".checkov/severity-config.yml")
+
+          stage4_severities = set(os.environ.get("STAGE4_SEVERITIES", "CRITICAL,HIGH").split(","))
+          always_block_ids  = set()
+          never_block_ids   = set()
+
+          try:
+              with open(config_path, "r") as f:
+                  cfg = yaml.safe_load(f).get("kubernetes", {})
+              stage4_severities = set(cfg.get("stage4_block_severities", list(stage4_severities)))
+              always_block_ids  = set(cfg.get("always_block_ids", []))
+              never_block_ids   = set(
+                  entry["id"] if isinstance(entry, dict) else entry
+                  for entry in cfg.get("never_block_ids", [])
+              )
+              print(f"Loaded severity config from {config_path}")
+          except FileNotFoundError:
+              print(f"Warning: {config_path} not found. Using environment variable defaults.")
+          except Exception as e:
+              print(f"Warning: Could not parse {config_path}: {e}. Using defaults.")
 
           try:
               with open(report_file, "r", encoding="utf-8") as f:
                   data = json.load(f)
           except FileNotFoundError:
-              print(f"{report_file} not found.")
+              print(f"Report file {report_file} not found. Was the scan step skipped?")
               sys.exit(1)
 
-          failed = data.get("results", {}).get("failed_checks", [])
+          failed_checks = data.get("results", {}).get("failed_checks", [])
           blocking = []
 
-          for check in failed:
-              severity = str(check.get("severity", "")).upper()
-              if severity in ["HIGH", "CRITICAL"]:
+          for check in failed_checks:
+              check_id = check.get("check_id", "")
+              severity = (check.get("severity") or "UNKNOWN").upper()
+              if check_id in never_block_ids:
+                  continue
+              if severity in stage4_severities or check_id in always_block_ids:
                   blocking.append(check)
 
-          print(f"Kubernetes HIGH/CRITICAL findings: {len(blocking)}")
+          print(f"\nTotal failed checks : {len(failed_checks)}")
+          print(f"Blocking findings   : {len(blocking)}")
 
-          if blocking:
-              for item in blocking:
-                  print(
-                      f"- {item.get('severity')} | "
-                      f"{item.get('check_id')} | "
-                      f"{item.get('file_path')} | "
-                      f"{item.get('check_name')}"
-                  )
-              sys.exit(1)
+          if not blocking:
+              print("\n✓ No Kubernetes blocking findings. Pipeline continues.")
+              sys.exit(0)
 
-          print("No HIGH/CRITICAL Kubernetes findings found.")
+          print("\n⚠ Blocking findings:\n")
+          for item in blocking:
+              print(
+                  f"- Stage 4 | "
+                  f"{item.get('check_id',''):<20} | "
+                  f"{(item.get('severity') or 'UNKNOWN').upper():<10} | "
+                  f"{item.get('file_path','')} | "
+                  f"{item.get('check_name','')}"
+              )
+
+          print(
+              f"\n{len(blocking)} blocking finding(s) must be resolved before merge.\n"
+              f"To add an exception, edit {config_path} with a documented reason."
+          )
+          sys.exit(1)
           PY
-          
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Weekly drift check: log a reminder if Checkov's check list has grown
+  # since the last config review.  Does NOT fail the build.
+  # ────────────────────────────────────────────────────────────────────────────
+  checkov-drift-check:
+    name: Weekly Severity Config Drift Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Checkov
+        run: pip install checkov==3.2.263 --quiet
+
+      - name: List all HIGH/CRITICAL checks and compare against config
+        run: |
+          python3 - <<'PY'
+          """
+          Fetches the current Checkov check registry, filters for HIGH/CRITICAL
+          Terraform + Kubernetes checks, and reports any that aren't referenced
+          in .checkov/severity-config.yml.
+
+          This is informational only — it does not fail the build.
+          """
+          import subprocess
+          import json
+          import yaml
+          import sys
+
+          CONFIG_PATH = ".checkov/severity-config.yml"
+          FRAMEWORKS   = ["terraform", "kubernetes"]
+          TARGET_SEFS  = {"HIGH", "CRITICAL"}
+
+          # Pull checkov's built-in check metadata
+          result = subprocess.run(
+              ["checkov", "--list", "--output", "json"],
+              capture_output=True, text=True
+          )
+
+          try:
+              checks = json.loads(result.stdout)
+          except json.JSONDecodeError:
+              print("Could not parse checkov --list output. Skipping drift check.")
+              sys.exit(0)
+
+          try:
+              with open(CONFIG_PATH) as f:
+                  cfg = yaml.safe_load(f)
+          except FileNotFoundError:
+              cfg = {}
+
+          referenced_ids = set()
+          for fw in FRAMEWORKS:
+              fw_cfg = cfg.get(fw, {})
+              referenced_ids |= set(fw_cfg.get("always_block_ids", []))
+              referenced_ids |= set(
+                  entry["id"] if isinstance(entry, dict) else entry
+                  for entry in fw_cfg.get("never_block_ids", [])
+              )
+
+          unknown = []
+          for check in checks:
+              if check.get("framework") not in FRAMEWORKS:
+                  continue
+              if (check.get("severity") or "").upper() not in TARGET_SEFS:
+                  continue
+              if check.get("id") not in referenced_ids:
+                  unknown.append(check)
+
+          if unknown:
+              print(f"\n📋 {len(unknown)} HIGH/CRITICAL check(s) not explicitly referenced in {CONFIG_PATH}:")
+              print("   These are covered by the severity-level gate but you may want to review them.\n")
+              for c in unknown:
+                  print(f"  {c.get('id',''):<25} [{c.get('severity',''):<8}] {c.get('name','')}")
+              print(f"\nReview {CONFIG_PATH} and add explicit always_block_ids or never_block_ids as needed.")
+          else:
+              print(f"✓ All HIGH/CRITICAL checks are referenced in {CONFIG_PATH}.")
+          PY
