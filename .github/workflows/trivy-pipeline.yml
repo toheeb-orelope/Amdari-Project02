@@ -25,6 +25,8 @@ jobs:
           docker build -t secureflow-transaction:${{ github.sha }} services/transaction-service
 
       - name: Scan image for HIGH/CRITICAL CVEs
+        id: image_scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: secureflow-transaction:${{ github.sha }}
@@ -34,6 +36,8 @@ jobs:
           format: table
 
       - name: Scan Kubernetes manifests
+        id: k8s_scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
@@ -41,3 +45,7 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: 1
           format: table
+
+      - name: Fail pipeline if Trivy found issues
+        if: steps.image_scan.outcome == 'failure' || steps.k8s_scan.outcome == 'failure'
+        run: exit 1
