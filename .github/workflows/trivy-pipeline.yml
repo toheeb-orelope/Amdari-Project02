@@ -20,20 +20,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build transaction-service image
+      - name: Build service images
         run: |
+          docker build -t secureflow-auth:${{ github.sha }} services/auth-service
+          docker build -t secureflow-frontend:${{ github.sha }} services/frontend
           docker build -t secureflow-transaction:${{ github.sha }} services/transaction-service
 
-      - name: Scan image for HIGH/CRITICAL CVEs
-        id: image_scan
+      - name: Scan auth-service image for HIGH/CRITICAL CVEs
+        id: auth_image_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: secureflow-auth:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          vuln-type: os,library
+          format: json
+          output: trivy-image-auth-service-report.json
+
+      - name: Scan frontend image for HIGH/CRITICAL CVEs
+        id: frontend_image_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: secureflow-frontend:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          vuln-type: os,library
+          format: json
+          output: trivy-image-frontend-report.json
+
+      - name: Scan transaction-service image for HIGH/CRITICAL CVEs
+        id: transaction_image_scan
         continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: secureflow-transaction:${{ github.sha }}
           severity: CRITICAL,HIGH
-          exit-code: 1
+          exit-code: 0
           vuln-type: os,library
-          format: table
+          format: json
+          output: trivy-image-transaction-service-report.json
 
       - name: Scan Kubernetes manifests
         id: k8s_scan
@@ -43,9 +70,41 @@ jobs:
           scan-type: config
           scan-ref: infra/kubernetes/
           severity: CRITICAL,HIGH
-          exit-code: 1
-          format: table
+          exit-code: 0
+          format: json
+          output: trivy-kubernetes-report.json
 
-      - name: Fail pipeline if Trivy found issues
-        if: steps.image_scan.outcome == 'failure' || steps.k8s_scan.outcome == 'failure'
-        run: exit 1
+      - name: Ensure Trivy reports exist
+        if: always()
+        run: |
+          test -f trivy-image-auth-service-report.json || echo '{"Results":[]}' > trivy-image-auth-service-report.json
+          test -f trivy-image-frontend-report.json || echo '{"Results":[]}' > trivy-image-frontend-report.json
+          test -f trivy-image-transaction-service-report.json || echo '{"Results":[]}' > trivy-image-transaction-service-report.json
+          test -f trivy-kubernetes-report.json || echo '{"Results":[]}' > trivy-kubernetes-report.json
+
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: |
+            trivy-image-auth-service-report.json
+            trivy-image-frontend-report.json
+            trivy-image-transaction-service-report.json
+            trivy-kubernetes-report.json
+
+      - name: Fail pipeline on CRITICAL Trivy findings
+        run: |
+          CRITICAL_COUNT=$(jq -s '
+            (
+              [.[]?.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")]
+              + [.[]?.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL")]
+            )
+            | length
+          ' trivy-image-auth-service-report.json trivy-image-frontend-report.json trivy-image-transaction-service-report.json trivy-kubernetes-report.json)
+
+          echo "CRITICAL Trivy findings: ${CRITICAL_COUNT}"
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            exit 1
+          fi

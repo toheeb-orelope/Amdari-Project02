@@ -1,0 +1,267 @@
+name: Security Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks full history scan
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/path \
+            --workdir /path \
+            ghcr.io/gitleaks/gitleaks:latest \
+            git \
+            --log-opts="--all" \
+            --config=".gitleaks.toml" \
+            --report-format=json \
+            --report-path=gitleaks-report.json \
+            --verbose
+
+      - name: Ensure Gitleaks report exists
+        if: always()
+        run: |
+          test -f gitleaks-report.json || echo "[]" > gitleaks-report.json
+
+      - name: Upload Gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+
+  sast-scan:
+    name: SAST Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@v8.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Export Sonar findings as JSON
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          mkdir -p security-findings
+
+          if [ -n "$SONAR_TOKEN" ] && [ -n "$SONAR_PROJECT_KEY" ]; then
+            curl -s -u "$SONAR_TOKEN:" \
+              "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_PROJECT_KEY&severities=BLOCKER,CRITICAL&resolved=false&ps=500" \
+              -o security-findings/sonar-findings.json
+          else
+            echo '{"issues":[]}' > security-findings/sonar-findings.json
+          fi
+
+      - name: Upload Sonar findings artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-security-findings
+          path: security-findings/sonar-findings.json
+
+  image-scan:
+    name: Image Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build service images
+        run: |
+          docker build -t secureflow-auth:${{ github.sha }} services/auth-service
+          docker build -t secureflow-frontend:${{ github.sha }} services/frontend
+          docker build -t secureflow-transaction:${{ github.sha }} services/transaction-service
+
+      - name: Scan auth-service image for HIGH/CRITICAL CVEs
+        id: auth_image_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: secureflow-auth:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          vuln-type: os,library
+          format: json
+          output: trivy-image-auth-service-report.json
+
+      - name: Scan frontend image for HIGH/CRITICAL CVEs
+        id: frontend_image_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: secureflow-frontend:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          vuln-type: os,library
+          format: json
+          output: trivy-image-frontend-report.json
+
+      - name: Scan transaction-service image for HIGH/CRITICAL CVEs
+        id: transaction_image_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: secureflow-transaction:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          vuln-type: os,library
+          format: json
+          output: trivy-image-transaction-service-report.json
+
+      - name: Ensure Trivy image reports exist
+        if: always()
+        run: |
+          test -f trivy-image-auth-service-report.json || echo '{"Results":[]}' > trivy-image-auth-service-report.json
+          test -f trivy-image-frontend-report.json || echo '{"Results":[]}' > trivy-image-frontend-report.json
+          test -f trivy-image-transaction-service-report.json || echo '{"Results":[]}' > trivy-image-transaction-service-report.json
+
+      - name: Upload Trivy image reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-reports
+          path: trivy-image-*-report.json
+
+  iac-scan:
+    name: IaC Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Kubernetes scan
+        id: trivy_k8s_scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: infra/kubernetes/
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          format: json
+          output: trivy-kubernetes-report.json
+
+      - name: Run Checkov Terraform scan
+        continue-on-error: true
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/terraform
+          framework: terraform
+          output_format: cli,sarif,json
+          output_file_path: console,checkov-terraform.sarif,checkov-terraform.json
+          soft_fail: true
+
+      - name: Run Checkov Kubernetes scan
+        continue-on-error: true
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/kubernetes
+          framework: kubernetes
+          output_format: cli,sarif,json
+          output_file_path: console,checkov-kubernetes.sarif,checkov-kubernetes.json
+          soft_fail: true
+
+      - name: Ensure IaC reports exist
+        if: always()
+        run: |
+          test -f trivy-kubernetes-report.json || echo '{"Results":[]}' > trivy-kubernetes-report.json
+          test -f checkov-terraform.json || echo '{"results":{"failed_checks":[]}}' > checkov-terraform.json
+          test -f checkov-kubernetes.json || echo '{"results":{"failed_checks":[]}}' > checkov-kubernetes.json
+
+      - name: Upload IaC reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-reports
+          path: |
+            trivy-kubernetes-report.json
+            checkov-terraform.json
+            checkov-kubernetes.json
+            checkov-terraform.sarif
+            checkov-kubernetes.sarif
+
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sast-scan, image-scan, iac-scan]
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Gitleaks report
+        uses: actions/download-artifact@v4
+        with:
+          name: gitleaks-report
+          path: .
+
+      - name: Download SonarQube report
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-security-findings
+          path: security-findings
+
+      - name: Download Trivy image report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-image-reports
+          path: .
+
+      - name: Download IaC reports
+        uses: actions/download-artifact@v4
+        with:
+          name: iac-reports
+          path: .
+
+      - name: Run Security Gate Evaluator
+        id: security_gate
+        env:
+          APPSEC_INTAKE_URL: ${{ vars.APPSEC_INTAKE_URL }}
+        run: bash pipeline/scripts/security-gate.sh
+        continue-on-error: true
+
+      - name: Post Security Gate Comments to PR
+        if: env.COMMENT_STATE == 'true' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body-file pr_comment_payload.md
+
+      - name: Enforce Gate Status
+        if: env.FAIL_STATE == 'true'
+        run: |
+          echo "Blocking deployment due to previous security gate violations."
+          exit 1
