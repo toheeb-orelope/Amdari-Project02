@@ -1,0 +1,89 @@
+name: Security Exception Request
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  security-exception:
+    name: Security Exception
+    runs-on: ubuntu-latest
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/security-exception')
+
+    steps:
+      - name: Register security exception request
+        uses: actions/github-script@v7
+        env:
+          APPSEC_INTAKE_URL: ${{ vars.APPSEC_INTAKE_URL }}
+          APPSEC_TEAM_HANDLE: ${{ vars.APPSEC_TEAM_HANDLE }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const requester = context.payload.comment.user.login;
+            const body = context.payload.comment.body.trim();
+            const intakeUrl = process.env.APPSEC_INTAKE_URL || "";
+            const appsecTeam = process.env.APPSEC_TEAM_HANDLE || "AppSec";
+            const label = "security-exception-requested";
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: label,
+                color: "B60205",
+                description: "Security exception requested and awaiting AppSec review"
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: [label]
+            });
+
+            const intakeLine = intakeUrl
+              ? `- Open the AppSec intake request: ${intakeUrl}`
+              : "- Open the AppSec intake request. Configure repository variable `APPSEC_INTAKE_URL` to include the link in this response.";
+
+            const response = [
+              "### Security Exception Request Registered",
+              "",
+              `Requester: @${requester}`,
+              `Approver group: ${appsecTeam}`,
+              "",
+              "The `/security-exception` command records a request only. It does not bypass the security gate by itself.",
+              "",
+              "#### Required Approval Process",
+              "- Provide the finding ID, affected service, severity, business justification, compensating controls, and requested expiry date in the intake request.",
+              intakeLine,
+              "- AppSec validates exploitability, compensating controls, and owner accountability.",
+              "- Approval must be time-bound, normally 30 to 90 days.",
+              "- Once approved, AppSec issues the scanner policy update or exception token and records the expiry.",
+              "- If denied, the PR remains blocked until the DevSecOps-owned CRITICAL finding is fixed.",
+              "",
+              "#### Current Request Comment",
+              "```",
+              body,
+              "```"
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: response
+            });

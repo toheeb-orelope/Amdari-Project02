@@ -1,6 +1,6 @@
 # Security Gate Pattern
 
->Before deployment, the security gate is an essential checkpoint. It compiles results from all security tools and prevents deployment when thresholds are surpassed.
+>In the DevSecOps pipeline, a Security Gate is an automated or semi-automatic checkpoint that assesses code, infrastructure, or deployments in accordance with predetermined security standards. The gate prevents advancement (such as code commits, builds, or deployments) until problems are fixed if the requirements are not satisfied.
 
 **Threshold strategy:**
 
@@ -148,6 +148,37 @@ When business requirements demand a deployment despite a hard-fail vulnerability
 * **Review Triage:** AppSec reviews the submission within a strict Service Level Objective (e.g., 4 hours for blockers).
 * **Approval Triage:** If acceptable, AppSec issues a time-bound exception token or updates the scanner configuration policy with an explicit expiration date (typically 30 to 90 days).
 * **Auto-Revocation:** Once the expiration date passes, the exception automatically deletes from the scanner platform, and the rule reverts to a hard-fail status on the next build.
+
+### `/security-exception` PR Comment Trigger
+
+Developers can start the exception workflow by commenting `/security-exception` on the pull request that is blocked by the security gate.
+
+The trigger performs these actions:
+
+* Adds the `security-exception-requested` label to the pull request.
+* Posts the documented AppSec approval process back to the pull request.
+* Includes the AppSec intake link when the repository variable `APPSEC_INTAKE_URL` is configured.
+* Records the original request comment for audit context.
+
+The trigger does **not** approve or bypass the security gate. A merge remains blocked until AppSec approves a time-bound exception and updates the relevant scanner policy, exception token, or allowlist.
+
+Required exception request details:
+
+* Finding ID or scanner reference.
+* Affected service, image, dependency, or infrastructure component.
+* Severity and current security gate impact.
+* Business justification for shipping before remediation.
+* Compensating controls or evidence that exploitability is reduced.
+* Requested expiration date, normally 30 to 90 days.
+* Named owner accountable for remediation before expiry.
+
+Approval requirements:
+
+* AppSec validates exploitability, compensating controls, and scope.
+* AppSec records the decision in the intake system.
+* Approved exceptions must be time-bound and tied to a specific finding or scanner rule.
+* Denied exceptions keep the DevSecOps-owned CRITICAL finding blocked until fixed.
+* Expired exceptions must be removed or allowed to auto-expire so the gate blocks again on the next scan.
 
 ## 4. Operations: Intake Template for AppSec Handoff
 
