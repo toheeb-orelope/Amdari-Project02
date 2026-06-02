@@ -49,8 +49,8 @@ resource "aws_iam_role_policy" "app_inline" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = "*"     # IV-08 — wildcard action.
-      Resource = "*"     # IV-08 — wildcard resource.
+      Action   = "*" # IV-08 — wildcard action.
+      Resource = "*" # IV-08 — wildcard resource.
     }]
   })
 }

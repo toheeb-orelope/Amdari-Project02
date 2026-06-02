@@ -1,0 +1,40 @@
+name: DevSecOps Pipeline
+run-name: ${{ github.actor }} is running security scans 🚀
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"  # Daily scans
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  # Sequential or parallel security scans
+  secrets:
+    uses: ./.github/workflows/gitleaks-pipeline.yml
+    secrets: inherit
+    
+  sast:
+    uses: ./.github/workflows/sonarqube-pipeline.yml
+    secrets: inherit
+    
+  image-scan:
+    uses: ./.github/workflows/trivy-pipeline.yml
+    secrets: inherit
+    
+  iac-scan:
+    uses: ./.github/workflows/checkov-pipeline.yml
+    secrets: inherit
+    
+  security-gate:
+    needs: [secrets, sast, image-scan, iac-scan]
+    uses: ./.github/workflows/security-gate-pipeline.yml
+    secrets: inherit
