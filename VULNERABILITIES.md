@@ -16,7 +16,7 @@ every ID, followed by remediations that resolve them.
 | AV-04 | Brute force — no rate limiting         | `/login` has no lockout, CAPTCHA, or throttle |
 | AV-05 | Insecure password storage              | `hash_password()` — MD5, no salt |
 | AV-06 | Admin panel — no authorisation check   | `/admin` does not verify `role == 'admin'` |
-| AV-07 | Hardcoded JWT secret                   | `SECRET_KEY = 'redacted'` fallback |
+| AV-07 | Hardcoded JWT secret                   | `SECRET_KEY = <JWT_SECRET>` fallback |
 | AV-08 | Sensitive data in error responses      | Exceptions return query string + stack to client |
 
 ## Transaction Service — `services/transaction-service/app.py`
@@ -37,7 +37,7 @@ every ID, followed by remediations that resolve them.
 |-------|----------------------------------------|----------|
 | FV-01 | Reflected XSS                          | `/dashboard?msg=...` — autoescape disabled |
 | FV-02 | Stored XSS — transaction notes         | Notes field rendered unescaped in dashboard |
-| FV-03 | Session hijacking                      | `SESSION_SECRET='redacted'` in docker-compose.yml |
+| FV-03 | Session hijacking                      | `SESSION_SECRET=<SESSION_SECRET>` in docker-compose.yml |
 | FV-04 | (not included in this engagement)      | — |
 | FV-05 | CSRF — transfer and login forms        | No CSRF token in any form |
 | FV-06 | Clickjacking                           | No X-Frame-Options / CSP frame-ancestors |

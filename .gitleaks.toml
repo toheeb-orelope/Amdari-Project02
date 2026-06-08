@@ -17,7 +17,7 @@ stopwords = ["example", "test"]
 [[rules]]
 id = "secureflow-known-weak-secrets"
 description = "Detect known weak SecureFlow lab secrets"
-regex = '''(?i)(JWT_SECRET|SECRET_KEY|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*[:=]\s*["']?(redacted|redacted|redacted|redacted|redacted)["']?'''
+regex = '''(?i)(JWT_SECRET|SECRET_KEY|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*[:=]\s*["']?(supword|word|word|word|redacted)["']?'''
 secretGroup = 2
 keywords = ["secret", "password", "jwt", "redacted"]
 

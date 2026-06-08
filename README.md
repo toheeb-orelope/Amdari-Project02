@@ -174,7 +174,7 @@ events, and signed images with SBOM attestations.
 - Do not `terraform apply` the infrastructure module against a real AWS account.
   The IAM policies use `AdministratorAccess` and the RDS instances are publicly
   accessible. Checkov is supposed to catch that before it reaches AWS.
-- The `.env` file contains canonical AWS example keys (`AKIAIOSFODNN7EXAMPLE`).
+- The `.env` file contains canonical AWS example keys (<AKIAIOSFODNN7EXAMPLE>).
   They are not live credentials but they will trip every secret scanner you
   point at the repo — which is the exercise.
 - When you rotate and remove secrets during remediation, remember that deleting
