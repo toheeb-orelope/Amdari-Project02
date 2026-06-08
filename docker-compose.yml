@@ -11,11 +11,11 @@ version: "3.8"
 
 services:
   auth-db:
-    image: redacted:14
+    image:  redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
     environment:
-      POSTGRES_DB: authdb
-      POSTGRES_USER: authuser
-      POSTGRES_PASSWORD: redacted
+      POSTGRES_DB: ${AUTH_DB_NAME}
+      POSTGRES_USER: ${AUTH_DB_USER}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD}
     ports:
       - "5432:5432"          # IV-02 — exposed on host.
     volumes:
@@ -23,11 +23,11 @@ services:
       - auth-db-data:/var/lib/redactedql/data
 
   transaction-db:
-    image: redacted:14
+    image:  redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
     environment:
-      POSTGRES_DB: transactiondb
-      POSTGRES_USER: txuser
-      POSTGRES_PASSWORD: redacted
+      POSTGRES_DB: ${TRANSACTION_DB_NAME}
+      POSTGRES_USER: ${TRANSACTION_DB_USER}
+      POSTGRES_PASSWORD: ${TRANSACTION_DB_PASSWORD}
     ports:
       - "5433:5432"          # IV-02 — exposed on host.
     volumes:
@@ -36,13 +36,6 @@ services:
 
   auth-service:
     build: ./services/auth-service
-    environment:
-      DB_HOST: auth-db
-      DB_PORT: 5432
-      DB_NAME: authdb
-      DB_USER: authuser
-      DB_PASSWORD: redacted        # IV-01, IV-03
-      JWT_SECRET: redacted # AV-07, IV-03
     ports:
       - "5001:5001"
     depends_on:
@@ -50,13 +43,6 @@ services:
 
   transaction-service:
     build: ./services/transaction-service
-    environment:
-      DB_HOST: transaction-db
-      DB_PORT: 5432
-      DB_NAME: transactiondb
-      DB_USER: txuser
-      DB_PASSWORD: redacted           # IV-01, IV-03
-      AUTH_SERVICE_URL: http://auth-service:5001
     ports:
       - "5002:5002"
     depends_on:
@@ -65,10 +51,7 @@ services:
 
   frontend:
     build: ./services/frontend
-    environment:
-      SESSION_SECRET: redacted           # FV-03, IV-03
-      AUTH_SERVICE_URL: http://auth-service:5001
-      TRANSACTION_SERVICE_URL: http://transaction-service:5002
+    # Secrets supplied via Vault
     ports:
       - "5000:5000"
     depends_on:

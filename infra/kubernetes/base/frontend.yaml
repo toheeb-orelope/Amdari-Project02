@@ -12,7 +12,16 @@ spec:
     metadata:
       labels:
         svc: frontend
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "frontend"
+        vault.hashicorp.com/agent-inject-secret-frontend.env: "secureflow/data/frontend"
+        vault.hashicorp.com/agent-inject-template-frontend.env: |
+          {{- with secret "secureflow/data/frontend" -}}
+          export API_BASE_URL="{{ .Data.data.API_BASE_URL }}"
+          {{- end }}
     spec:
+      serviceAccountName: frontend
       containers:
         - name: frontend
           image: secureflow/frontend:latest   # CK-06
@@ -40,3 +49,6 @@ spec:
     - port: 5000
       targetPort: 5000
       nodePort: 30080
+
+
+   

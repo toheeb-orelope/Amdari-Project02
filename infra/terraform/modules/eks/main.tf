@@ -35,9 +35,9 @@ resource "aws_eks_cluster" "main" {
 
   vpc_config {
     subnet_ids              = var.public_subnet_ids # IV-10
-    endpoint_private_access = false                 # IV-10
-    endpoint_public_access  = true                  # IV-10
-    public_access_cidrs     = ["0.0.0.0/0"]         # IV-10
+    endpoint_private_access = false                  # IV-10
+    endpoint_public_access  = true                   # IV-10
+    public_access_cidrs     = ["0.0.0.0/0"]          # IV-10
   }
 
   # Deliberately missing: encryption_config for secrets at rest.
@@ -73,7 +73,6 @@ resource "aws_eks_node_group" "main" {
   node_role_arn   = aws_iam_role.node_group.arn
   subnet_ids      = var.public_subnet_ids # IV-10 — nodes in public subnets.
 
-
   scaling_config {
     desired_size = 2
     max_size     = 3
@@ -82,49 +81,6 @@ resource "aws_eks_node_group" "main" {
 
   instance_types = ["t3.medium"]
 }
-
-data "aws_eks_cluster_auth" "main" {
-  name = aws_eks_cluster.main.name
-}
-
-provider "kubernetes" {
-  host                   = aws_eks_cluster.main.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.main.token
-}
-
-provider "helm" {
-  kubernetes = {
-    host                   = aws_eks_cluster.main.endpoint
-    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.main.token
-  }
-}
-
-resource "kubernetes_namespace" "vault" {
-  metadata {
-    name = "vault"
-  }
-
-  depends_on = [aws_eks_node_group.main]
-}
-
-resource "helm_release" "vault" {
-  name       = "vault"
-  repository = "https://helm.releases.hashicorp.com"
-  chart      = "vault"
-  namespace  = kubernetes_namespace.vault.metadata[0].name
-
-  values = [<<EOF
-server:
-  dev:
-    enabled: false
-EOF
-  ]
-
-  depends_on = [aws_eks_node_group.main]
-}
-
 
 output "cluster_name" {
   value = aws_eks_cluster.main.name

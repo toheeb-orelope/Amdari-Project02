@@ -8,18 +8,23 @@ import hashlib
 import jwt
 import psycopg2
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
+load_dotenv("/vault/secrets/auth-service.env")
+
+SECRET_KEY = os.getenv("JWT_SECRET")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_USER = os.getenv("DB_USER")
 # AV-07 — Hardcoded JWT Secret. Matches the value committed in docker-compose.yml and .env.
-SECRET_KEY = os.getenv("JWT_SECRET", "redacted")
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "auth-db"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-    "dbname": os.getenv("DB_NAME", "authdb"),
-    "user": os.getenv("DB_USER", "authuser"),
-    "password": os.getenv("DB_PASSWORD", "redacted"),
+    "host": os.getenv("DB_HOST"),
+    "port": int(os.getenv("DB_PORT")),
+    "dbname": os.getenv("DB_NAME"),
+    "user": DB_USER,
+    "password": DB_PASSWORD,
 }
 
 

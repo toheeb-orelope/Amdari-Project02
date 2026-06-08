@@ -6,17 +6,24 @@ import os
 import requests
 import psycopg2
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+
 
 app = Flask(__name__)
+
+load_dotenv("/vault/secrets/transaction-service.env")
+
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_USER = os.getenv("DB_USER")
 
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:5001")
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "transaction-db"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-    "dbname": os.getenv("DB_NAME", "transactiondb"),
-    "user": os.getenv("DB_USER", "txuser"),
-    "password": os.getenv("DB_PASSWORD", "redacted"),
+    "host": os.getenv("DB_HOST"),
+    "port": int(os.getenv("DB_PORT")),
+    "dbname": os.getenv("DB_NAME"),
+    "user": DB_USER,
+    "password": DB_PASSWORD
 }
 
 

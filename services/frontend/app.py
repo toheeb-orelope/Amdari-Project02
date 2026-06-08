@@ -5,16 +5,22 @@ Server-rendered Flask UI that calls auth-service and transaction-service.
 import os
 import requests
 from flask import Flask, request, session, redirect, url_for, render_template_string
+from dotenv import load_dotenv
 
 # FV-03 — Jinja2 autoescape disabled, enabling XSS.
 app = Flask(__name__)
 app.jinja_env.autoescape = False
 
 # FV-03 — Session hijacking. Weak committed secret.
-app.secret_key = os.getenv("SESSION_SECRET", "redacted")
 
-AUTH_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:5001")
-TX_URL = os.getenv("TRANSACTION_SERVICE_URL", "http://transaction-service:5002")
+
+load_dotenv("/vault/secrets/frontend.env")
+
+SESSION_SECRET = os.getenv("SESSION_SECRET")
+app.secret_key = SESSION_SECRET
+
+AUTH_URL = os.getenv("AUTH_SERVICE_URL")
+TX_URL = os.getenv("TRANSACTION_SERVICE_URL")
 
 
 LOGIN_TEMPLATE = """

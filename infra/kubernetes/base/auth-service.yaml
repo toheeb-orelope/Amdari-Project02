@@ -13,7 +13,18 @@ spec:
     metadata:
       labels:
         svc: auth-service
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "auth-service"
+        vault.hashicorp.com/agent-inject-secret-auth-service.env: "secureflow/data/auth-service"
+        vault.hashicorp.com/agent-inject-template-auth-service.env: |
+          {{- with secret "secureflow/data/auth-service" -}}
+          export DB_USER="{{ .Data.data.DB_USER }}"
+          export DB_PASSWORD="{{ .Data.data.DB_PASSWORD }}"
+          export JWT_SECRET="{{ .Data.data.JWT_SECRET }}"
+          {{- end }}
     spec:
+      serviceAccountName: auth-service
       containers:
         - name: auth-service
           # CK-06 — :latest tag.
@@ -28,13 +39,6 @@ spec:
               value: auth-db
             - name: DB_NAME
               value: authdb
-            - name: DB_USER
-              value: authuser
-            - name: DB_PASSWORD
-              valueFrom:
-                configMapKeyRef:
-                  name: secureflow-config
-                  key: AUTH_DB_PASSWORD
           # CK-04 — privileged container with privilege escalation.
           securityContext:
             privileged: true
@@ -53,3 +57,4 @@ spec:
   ports:
     - port: 5001
       targetPort: 5001
+

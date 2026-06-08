@@ -12,7 +12,17 @@ spec:
     metadata:
       labels:
         svc: transaction-service
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "transaction-service"
+        vault.hashicorp.com/agent-inject-secret-transaction-service.env: "secureflow/data/transaction-service"
+        vault.hashicorp.com/agent-inject-template-transaction-service.env: |
+          {{- with secret "secureflow/data/transaction-service" -}}
+          export DB_USER="{{ .Data.data.DB_USER }}"
+          export DB_PASSWORD="{{ .Data.data.DB_PASSWORD }}"
+          {{- end }}
     spec:
+      serviceAccountName: transaction-service
       containers:
         - name: transaction-service
           image: secureflow/transaction-service:latest   # CK-06
@@ -26,13 +36,6 @@ spec:
               value: transaction-db
             - name: DB_NAME
               value: transactiondb
-            - name: DB_USER
-              value: txuser
-            - name: DB_PASSWORD
-              valueFrom:
-                configMapKeyRef:
-                  name: secureflow-config
-                  key: TX_DB_PASSWORD
           securityContext:
             privileged: true                # CK-04
             allowPrivilegeEscalation: true  # CK-04

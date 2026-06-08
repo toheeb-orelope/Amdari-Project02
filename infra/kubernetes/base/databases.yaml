@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: redacted
-          image: redacted:14    # CK-03 — no digest pinning.
+          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c    # CK-03 — no digest pinning.
           env:
             - name: POSTGRES_DB
               value: authdb
@@ -58,7 +58,7 @@ spec:
     spec:
       containers:
         - name: redacted
-          image: redacted:14
+          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
           env:
             - name: POSTGRES_DB
               value: transactiondb
