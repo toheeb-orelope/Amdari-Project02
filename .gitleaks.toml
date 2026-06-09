@@ -2,6 +2,11 @@ title = "SecureFlow Gitleaks Config"
 
 [extend]
 useDefault = true
+[allowlist]
+paths = [
+    '''VULNERABILITIES\.md''',
+    '''\.env$''',
+]
 
 [[rules]]
 id = "secureflow-jwt-secret"

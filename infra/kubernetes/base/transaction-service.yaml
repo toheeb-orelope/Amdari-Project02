@@ -25,7 +25,7 @@ spec:
       serviceAccountName: transaction-service
       containers:
         - name: transaction-service
-          image: secureflow/transaction-service:latest   # CK-06
+          image: secureflow/transaction-service:v1.0.0   # CK-06
           ports:
             - containerPort: 5002
           envFrom:
@@ -37,10 +37,35 @@ spec:
             - name: DB_NAME
               value: transactiondb
           securityContext:
-            privileged: true                # CK-04
-            allowPrivilegeEscalation: true  # CK-04
-            runAsUser: 0                    # CK-02
+            privileged: false                # CK-04
+            allowPrivilegeEscalation: false  # CK-04
+            runAsUser: 1000                    # CK-02
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true          # CK-04
+            capabilities:
+              drop: ["ALL"]                      # CK-04
           # CK-05 — no resources.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 10
+            periodSeconds: 30
 ---
 apiVersion: v1
 kind: Service

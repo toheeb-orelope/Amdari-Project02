@@ -1,0 +1,137 @@
+#
+# SecureFlow custom Falco rules.
+#
+# Rules follow Falco custom-rules guidance:
+# - keep common selectors in macros/lists;
+# - scope detections to the secureflow namespace;
+# - include explicit syscall event types where practical;
+# - use exceptions for expected service behavior instead of broad disables.
+#
+
+- list: secureflow_shell_binaries
+  items: [ash, bash, dash, ksh, sh, tcsh, zsh]
+
+- list: secureflow_package_manager_binaries
+  items: [apk, apt, apt-get, dpkg, pip, pip3, rpm, yum]
+
+- list: secureflow_db_workloads
+  items: [auth-db, transaction-db]
+
+- list: secureflow_sensitive_file_prefixes
+  items:
+    - /run/secrets
+    - /var/run/secrets
+    - /var/run/secrets/kubernetes.io/serviceaccount
+    - /vault/secrets
+
+- list: secureflow_read_only_path_prefixes
+  items: [/bin, /boot, /etc, /lib, /lib64, /sbin, /usr]
+
+- list: secureflow_expected_secret_readers
+  items: [python, vault-agent, cat]
+
+- macro: secureflow_container
+  condition: >
+    container.id != host and
+    k8s.ns.name = secureflow
+
+- macro: secureflow_spawned_process
+  condition: >
+    evt.type in (execve, execveat) and evt.dir = <
+
+- macro: secureflow_open_read
+  condition: >
+    evt.type in (open, openat, openat2) and evt.dir = < and
+    fd.typechar = f and
+    evt.is_open_read = true
+
+- macro: secureflow_open_write
+  condition: >
+    evt.type in (open, openat, openat2, creat, truncate, ftruncate) and evt.dir = < and
+    fd.typechar = f and
+    (evt.is_open_write = true or evt.type in (creat, truncate, ftruncate))
+
+- macro: secureflow_db_pod
+  condition: >
+    k8s.pod.name startswith auth-db or
+    k8s.pod.name startswith transaction-db
+
+- rule: SecureFlow Unexpected Shell In Container
+  desc: Detect an interactive shell spawned inside a SecureFlow application or database container.
+  condition: >
+    secureflow_spawned_process and
+    secureflow_container and
+    proc.name in (secureflow_shell_binaries)
+  output: >
+    Unexpected shell spawned in SecureFlow container
+    (user=%user.name command=%proc.cmdline parent=%proc.pname
+    namespace=%k8s.ns.name pod=%k8s.pod.name container=%container.name
+    image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [secureflow, runtime, container, shell, appsec]
+  exceptions:
+    - name: allowed_debug_shells
+      fields: [k8s.pod.name, proc.name, user.name]
+      comps: [=, =, =]
+      values: []
+
+- rule: SecureFlow Write Below Read Only Path
+  desc: Detect writes beneath OS paths that should stay immutable in hardened SecureFlow containers.
+  condition: >
+    secureflow_open_write and
+    secureflow_container and
+    fd.name pmatch (secureflow_read_only_path_prefixes) and
+    not proc.name in (secureflow_package_manager_binaries)
+  output: >
+    Write below read-only path in SecureFlow container
+    (user=%user.name file=%fd.name command=%proc.cmdline parent=%proc.pname
+    namespace=%k8s.ns.name pod=%k8s.pod.name container=%container.name
+    image=%container.image.repository:%container.image.tag)
+  priority: ERROR
+  tags: [secureflow, runtime, filesystem, immutable, appsec]
+  exceptions:
+    - name: allowed_read_only_path_writes
+      fields: [k8s.pod.name, fd.name, proc.name]
+      comps: [=, startswith, =]
+      values: []
+
+- rule: SecureFlow Outbound Connection From Database Pod
+  desc: Detect database pods initiating outbound network connections, which can indicate exploitation or data exfiltration.
+  condition: >
+    evt.type = connect and evt.dir = < and
+    secureflow_container and
+    secureflow_db_pod and
+    fd.typechar in (4, 6) and
+    not fd.rip in (127.0.0.1, ::1)
+  output: >
+    Database pod initiated outbound connection
+    (user=%user.name command=%proc.cmdline connection=%fd.name
+    namespace=%k8s.ns.name pod=%k8s.pod.name container=%container.name
+    image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [secureflow, runtime, network, database, exfiltration, appsec]
+  exceptions:
+    - name: allowed_db_outbound_connections
+      fields: [k8s.pod.name, fd.rip, fd.rport]
+      comps: [=, =, =]
+      values: []
+
+- rule: SecureFlow Sensitive File Read By Unexpected Process
+  desc: Detect unexpected reads of Kubernetes service-account tokens or Vault-injected secret material.
+  condition: >
+    secureflow_open_read and
+    secureflow_container and
+    fd.name pmatch (secureflow_sensitive_file_prefixes) and
+    not proc.name in (secureflow_expected_secret_readers)
+  output: >
+    Sensitive file read by unexpected process in SecureFlow container
+    (user=%user.name file=%fd.name command=%proc.cmdline parent=%proc.pname
+    namespace=%k8s.ns.name pod=%k8s.pod.name container=%container.name
+    image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [secureflow, runtime, secrets, vault, kubernetes, appsec]
+  exceptions:
+    - name: allowed_sensitive_file_reads
+      fields: [k8s.pod.name, fd.name, proc.name]
+      comps: [=, startswith, =]
+      values: []

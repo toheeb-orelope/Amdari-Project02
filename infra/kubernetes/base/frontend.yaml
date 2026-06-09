@@ -24,16 +24,42 @@ spec:
       serviceAccountName: frontend
       containers:
         - name: frontend
-          image: secureflow/frontend:latest   # CK-06
+          image: secureflow/frontend:v1.0.0   # CK-06
           ports:
             - containerPort: 5000
           envFrom:
             - configMapRef:
                 name: secureflow-config
           securityContext:
-            privileged: true                # CK-04
-            allowPrivilegeEscalation: true  # CK-04
-            runAsUser: 0                    # CK-02
+            privileged: false                # CK-04
+            allowPrivilegeEscalation: false  # CK-04
+            runAsUser: 1000                    # CK-02
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true          # CK-04
+            capabilities:
+              drop: ["ALL"]                      # CK-04
+          # CK-05 — no resources.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 30
           # CK-05 — no resources.
 ---
 apiVersion: v1

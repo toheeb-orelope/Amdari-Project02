@@ -28,7 +28,7 @@ spec:
       containers:
         - name: auth-service
           # CK-06 — :latest tag.
-          image: secureflow/auth-service:latest
+          image: secureflow/auth-service:v1.0.0   # CK-06
           ports:
             - containerPort: 5001
           envFrom:
@@ -41,9 +41,35 @@ spec:
               value: authdb
           # CK-04 — privileged container with privilege escalation.
           securityContext:
-            privileged: true
-            allowPrivilegeEscalation: true
-            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true          # CK-04
+            capabilities:
+              drop: ["ALL"]                      # CK-04
+          # CK-05 — no resources.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 10
+            periodSeconds: 30
           # CK-05 — no resources.
 ---
 apiVersion: v1

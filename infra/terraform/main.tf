@@ -33,6 +33,21 @@ variable "region" {
   default = "eu-west-2"
 }
 
+provider "aws" {
+  region = var.region
+  alias  = "primary"
+}
+
+provider "aws" {
+  region = var.replication_region
+  alias  = "secondary"
+}
+
+variable "replication_region" {
+  type    = string
+  default = "us-east-1"
+}
+
 variable "project" {
   type    = string
   default = "secureflow"
@@ -47,6 +62,7 @@ module "vpc" {
   source      = "./modules/vpc"
   project     = var.project
   environment = var.environment
+  my_cidr_block = "10.0.0.0/16"
 }
 
 module "iam" {
@@ -57,6 +73,7 @@ module "iam" {
 module "s3" {
   source  = "./modules/s3"
   project = var.project
+  region  = var.region
 }
 
 module "eks" {
@@ -64,7 +81,9 @@ module "eks" {
   project           = var.project
   environment       = var.environment
   vpc_id            = module.vpc.vpc_id
-  public_subnet_ids = module.vpc.public_subnet_ids
+  private_subnet_ids = module.vpc.private_subnet_ids
+  region            = var.region
+  my_cidr_block     = var.my_cidr_block
 }
 
 module "rds" {
@@ -72,6 +91,8 @@ module "rds" {
   project           = var.project
   environment       = var.environment
   vpc_id            = module.vpc.vpc_id
-  public_subnet_ids = module.vpc.public_subnet_ids
-  db_password       = "redacted" # IV-01 — hardcoded DB password reused from docker-compose.
+  private_subnet_ids = module.vpc.private_subnet_ids
+  db_password       = var.db_password # IV-01 — hardcoded DB password reused from docker-compose.
+  region            = var.region
+  my_cidr_block     = var.my_cidr_block
 }

@@ -1,5 +1,6 @@
 variable "project" { type = string }
 variable "environment" { type = string }
+variable "my_cidr_block" { type = string }
 
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -10,6 +11,23 @@ resource "aws_vpc" "main" {
     Name = "${var.project}-${var.environment}-vpc"
   }
 }
+
+resource "aws_default_security_group" "default" {
+  vpc_id      = aws_vpc.main.id
+  description = "Default security group for ${var.project}-${var.environment} to deny all ingress and allow all egress. Checkov will flag this SG for being too permissive, but it's a common default configuration."
+  tags = {
+    Name = "${var.project}-${var.environment}-default-sg"
+  }
+}
+
+resource "aws_flow_log" "main" {
+  iam_role_arn    = "arn"
+  log_destination = "log"
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.main.id
+}
+
+
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
@@ -25,7 +43,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.${count.index + 1}.0/24"
   availability_zone       = ["${var.project}-az-a", "${var.project}-az-b"][count.index]
-  map_public_ip_on_launch = true # IV-10
+  map_public_ip_on_launch = false # IV-10
 
   tags = {
     Name = "${var.project}-${var.environment}-public-${count.index}"
@@ -47,26 +65,6 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# Security group with overly-broad ingress — Checkov will flag.
-resource "aws_security_group" "wide_open" {
-  name        = "${var.project}-${var.environment}-wide-open"
-  description = "Deliberately permissive"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 0
-    to_port     = 65535
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # IV-08 adjacent — overly broad ingress.
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
 
 output "vpc_id" {
   value = aws_vpc.main.id

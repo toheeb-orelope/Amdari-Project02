@@ -107,6 +107,34 @@ The principle here is **immediate ROI.** Secret scanning is the fastest win with
 - DAST scans complete in <30 minutes
 - High findings resolved within 48 hours
 
+**Implemented baseline:** The `security-gate-pipeline.yml` workflow runs an OWASP ZAP baseline scan against the repository variable `STAGING_URL`. ZAP findings are AppSec-owned and soft-fail: HIGH findings are added to the PR comment under AppSec-owned findings, but they do not set `FAIL_STATE=true` and do not block the merge.
+
+## Runtime Detection: Falco
+
+Falco is deployed as a DaemonSet so every EKS node runs a runtime sensor. It is the last-line control for exploitation that reaches a running pod after SAST, image scanning, IaC scanning, and DAST.
+
+The SecureFlow rules live in `infra/kubernetes/security/falco-rules.yaml` and are scoped to the `secureflow` namespace. They detect:
+
+* Unexpected shell execution inside application or database containers.
+* Writes below hardened read-only operating-system paths.
+* Outbound network connections initiated by database pods.
+* Sensitive-file reads from Kubernetes service-account or Vault-injected secret paths by unexpected processes.
+
+Falco alerts are AppSec-owned runtime findings. They should route to the observability stack or Falcosidekick target and should not set `FAIL_STATE=true` in the PR security gate. Broken Falco manifests or invalid rules may block deployment because that means the runtime control itself cannot be deployed.
+
+Deploy with:
+
+```bash
+kubectl apply -k infra/kubernetes/security
+```
+
+Validate rollout with:
+
+```bash
+kubectl -n falco rollout status daemonset/falco
+kubectl -n falco logs -l app.kubernetes.io/name=falco
+```
+
 ## 1. Ownership Matrix: DevSecOps vs. AppSec Scanners
 
 To avoid tool fatigue and friction, split ownership based on execution speed and risk context. DevSecOps owns embedded pipeline guardrails. AppSec owns deep compliance and risk visibility.

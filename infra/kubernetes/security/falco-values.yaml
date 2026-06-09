@@ -1,0 +1,54 @@
+# Falco Helm values for SecureFlow runtime detection.
+#
+# Install example:
+#   helm repo add falcosecurity https://falcosecurity.github.io/charts
+#   helm upgrade --install falco falcosecurity/falco \
+#     --namespace falco --create-namespace \
+#     -f infra/kubernetes/security/falco-values.yaml \
+#     --set-file customRules.secureflow_rules\\.yaml=infra/kubernetes/security/falco-rules.yaml
+#
+# The raw Kubernetes manifests in this directory deploy the same runtime control
+# without Helm. Keep the custom rules in falco-rules.yaml as the source of truth.
+
+controller:
+  kind: daemonset
+
+driver:
+  kind: modern_ebpf
+
+falco:
+  jsonOutput: true
+  priority: notice
+  stdoutOutput:
+    enabled: true
+  fileOutput:
+    enabled: false
+  grpc:
+    enabled: false
+  grpcOutput:
+    enabled: false
+  httpOutput:
+    enabled: false
+
+falcosidekick:
+  enabled: false
+  # Enable when the observability stack exposes a webhook, Slack, Teams, or SIEM
+  # endpoint for AppSec runtime alerts.
+  # config:
+  #   webhook:
+  #     address: https://example.invalid/falco-webhook
+  webui:
+    enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+tolerations:
+  - operator: Exists
+
+customRules: {}

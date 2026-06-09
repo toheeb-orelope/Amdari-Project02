@@ -161,6 +161,26 @@ if [[ -f "checkov-kubernetes.json" ]]; then
     fi
 fi
 
+# 5. OWASP ZAP DAST scan. ZAP is AppSec-owned and always soft-fail.
+if [[ -f "zap-output/zap-report.json" ]]; then
+    if jq -e '.scan_skipped == true' "zap-output/zap-report.json" >/dev/null 2>&1; then
+        ZAP_SKIP_REASON=$(jq -r '.skip_reason // "ZAP baseline scan was skipped."' "zap-output/zap-report.json" 2>/dev/null || echo "ZAP baseline scan was skipped.")
+        append_appsec_finding "**OWASP ZAP DAST:** ${ZAP_SKIP_REASON}"
+    else
+        ZAP_HIGH_COUNT=$(jq_count "zap-output/zap-report.json" '
+            [
+                .site[]?.alerts[]?
+                | select((.riskcode // "0" | tonumber) == 3 or ((.riskdesc // "") | test("^High")))
+            ]
+            | length
+        ')
+
+        if [[ "$ZAP_HIGH_COUNT" -gt 0 ]]; then
+            append_appsec_finding "**OWASP ZAP DAST:** Found ${ZAP_HIGH_COUNT} HIGH runtime finding(s) in staging. Routed to AppSec as soft-fail."
+        fi
+    fi
+fi
+
 # --- ENFORCEMENT & EVALUATION PHASE ---
 
 if [[ -z "$DEVSECOPS_FINDINGS" ]]; then
