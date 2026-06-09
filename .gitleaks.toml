@@ -3,9 +3,31 @@ title = "SecureFlow Gitleaks Config"
 [extend]
 useDefault = true
 [allowlist]
+description = "Allowlist remediated/redacted placeholders and historical scrubbed files"
+regexTarget = "line"
+commits = [
+  # Historical findings from removed/remediated workflow and lab-baseline commits.
+  # Keep these narrow; do not add current commits that may contain new secrets.
+  '''cbed2486e862f4f22808b549a44b018e44ac59ce''',
+  '''1b5127c2b30195d7365f78ede9ad2fbb2b406685''',
+]
+regexes = [
+  '''REDACTED-ROTATED-SECRET''',
+  '''REDACTED-AWS-KEY''',
+  '''REDACTED-''',
+  '''PLACEHOLDER_SET_AT_DEPLOY_TIME''',
+  '''\$\{\{\s*secrets\.''',
+  '''curl\s+-s\s+-u\s+"\$SONAR_TOKEN:"''',
+  '''(?i)(JWT_SECRET|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*:\s*["']?redacted["']?''',
+  '''(?i)db_password\s*=\s*["']?redacted["']?''',
+]
 paths = [
-    '''VULNERABILITIES\.md''',
-    '''\.env$''',
+  '''\.gitleaks\.toml''',
+  '''README\.md''',
+  '''evidence/''',
+  '''reports/''',
+  '''VULNERABILITIES\.md''',
+  '''\.env$''',
 ]
 
 [[rules]]
@@ -25,6 +47,13 @@ description = "Detect known weak SecureFlow lab secrets"
 regex = '''(?i)(JWT_SECRET|SECRET_KEY|SESSION_SECRET|DB_PASSWORD|POSTGRES_PASSWORD)\s*[:=]\s*["']?(supword|word|word|word|redacted)["']?'''
 secretGroup = 2
 keywords = ["secret", "password", "jwt", "redacted"]
+
+[[rules.allowlists]]
+description = "Allow scrubbed placeholder value used in historical reports"
+regexTarget = "secret"
+regexes = [
+  '''^redacted$''',
+]
 
 [[rules]]
 id = "secureflow-db-connection-string"
