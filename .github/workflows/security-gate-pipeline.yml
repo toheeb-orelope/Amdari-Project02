@@ -364,7 +364,7 @@ jobs:
             echo "Missing COSIGN_PRIVATE_KEY, COSIGN_PASSWORD, or COSIGN_PUBLIC_KEY configuration."
             exit 1
           fi
-
+          
           printf "%s" "$COSIGN_PUBLIC_KEY" > cosign.pub
 
           owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"

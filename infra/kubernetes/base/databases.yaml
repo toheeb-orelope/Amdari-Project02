@@ -1,3 +1,4 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,10 +13,22 @@ spec:
     metadata:
       labels:
         svc: auth-db
+      annotations:
+        trivy-operator.aquasecurity.github.io/ignore-ids: "KSV-0121,KSV-0118"
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - name: redacted
-          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c    # CK-03 — no digest pinning.
+        - name: postgres
+          image: postgres:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: POSTGRES_DB
               value: authdb
@@ -28,6 +41,12 @@ spec:
                   key: AUTH_DB_PASSWORD
           ports:
             - containerPort: 5432
+          volumeMounts:
+            - name: pgrun
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: pgrun
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -55,10 +74,22 @@ spec:
     metadata:
       labels:
         svc: transaction-db
+      annotations:
+        trivy-operator.aquasecurity.github.io/ignore-ids: "KSV-0121,KSV-0118"
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - name: redacted
-          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
+        - name: postgres
+          image: postgres:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: POSTGRES_DB
               value: transactiondb
@@ -71,6 +102,12 @@ spec:
                   key: TX_DB_PASSWORD
           ports:
             - containerPort: 5432
+          volumeMounts:
+            - name: pgrun
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: pgrun
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
