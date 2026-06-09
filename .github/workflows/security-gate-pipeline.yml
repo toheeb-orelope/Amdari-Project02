@@ -100,9 +100,9 @@ jobs:
 
       - name: Build service images
         run: |
-          docker build -t secureflow-auth:${{ github.sha }} services/auth-service
-          docker build -t secureflow-frontend:${{ github.sha }} services/frontend
-          docker build -t secureflow-transaction:${{ github.sha }} services/transaction-service
+          docker build --pull -t secureflow-auth:${{ github.sha }} services/auth-service
+          docker build --pull -t secureflow-frontend:${{ github.sha }} services/frontend
+          docker build --pull -t secureflow-transaction:${{ github.sha }} services/transaction-service
 
       - name: Scan auth-service image for HIGH/CRITICAL CVEs
         id: auth_image_scan
@@ -381,7 +381,7 @@ jobs:
           for service in auth-service frontend transaction-service; do
             image="ghcr.io/${owner}/${repo}-${service}:${GITHUB_SHA}"
 
-            docker build -t "$image" "services/${service}"
+            docker build --pull -t "$image" "services/${service}"
             docker push "$image"
 
             digest="$(docker buildx imagetools inspect "$image" | awk '/Digest:/ {print $2; exit}')"

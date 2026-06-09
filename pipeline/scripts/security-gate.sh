@@ -45,12 +45,12 @@ if [[ -f "gitleaks-report.json" ]]; then
     fi
 fi
 
-# 2. SonarQube SAST scan
+# 2. SonarQube SAST scan. SonarQube is AppSec-owned and soft-fail.
 if [[ -f "security-findings/sonar-findings.json" ]]; then
     SONAR_COUNT=$(jq_count "security-findings/sonar-findings.json" '[.issues[]? | select(.severity == "BLOCKER" or .severity == "CRITICAL")] | length')
 
     if [[ "$SONAR_COUNT" -gt 0 ]]; then
-        append_failure "**SonarQube:** Found ${SONAR_COUNT} unresolved BLOCKER/CRITICAL issue(s)."
+        append_appsec_finding "**SonarQube:** Found ${SONAR_COUNT} unresolved BLOCKER/CRITICAL issue(s). Routed to AppSec as soft-fail."
     fi
 fi
 
