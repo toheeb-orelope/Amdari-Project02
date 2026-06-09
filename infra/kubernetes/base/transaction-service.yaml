@@ -26,7 +26,7 @@ spec:
       serviceAccountName: transaction-service
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+        runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
