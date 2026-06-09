@@ -33,6 +33,7 @@ spec:
       containers:
         - name: auth-service
           image: secureflow/auth-service:v1.0.0
+          imagePullPolicy: Always
           ports:
             - containerPort: 5001
           envFrom:

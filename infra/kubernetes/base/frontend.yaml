@@ -25,6 +25,7 @@ spec:
       containers:
         - name: frontend
           image: secureflow/frontend:v1.0.0   # CK-06
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           envFrom:
