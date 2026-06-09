@@ -1,138 +1,85 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
-  name: falco
-  namespace: falco
-  annotations:
-    checkov.io/skip1: CKV_K8S_16=Falco requires privileged access to observe host syscalls on every node.
-    checkov.io/skip2: CKV_K8S_20=Falco requires host process namespace visibility for runtime detection.
-    checkov.io/skip3: CKV_K8S_22=Falco requires host filesystem mounts and runtime socket access.
-    checkov.io/skip4: CKV_K8S_23=Falco must run as root to load and operate the runtime sensor.
-    checkov.io/skip5: CKV_K8S_37=Falco requires elevated runtime permissions as a node security sensor.
-    checkov.io/skip6: CKV_K8S_40=Falco requires host networking metadata for runtime detections.
-    checkov.io/skip7: CKV_K8S_17=Falco requires hostPID to observe all host process syscalls.
-    checkov.io/skip8: CKV_K8S_19=Falco requires hostNetwork for node-level network visibility.
-    checkov.io/skip9: CKV_K8S_28=Falco requires NET_RAW capability for packet inspection.
-    checkov.io/skip10: CKV_K8S_29=Falco intentionally uses elevated security context as a node sensor.
-    checkov.io/skip11: CKV_K8S_31=Falco cannot use seccomp runtime/default as it captures all syscalls.
-    checkov.io/skip12: CKV_K8S_38=Falco requires its service account token for RBAC-based event enrichment.
-    checkov.io/skip13: CKV_K8S_8=Falco exposes no HTTP health endpoint by default; liveness is ensured by the DaemonSet restart policy.
-    checkov.io/skip14: CKV_K8S_9=Falco exposes no HTTP health endpoint by default; readiness is ensured by the DaemonSet restart policy.
-    checkov.io/skip15: CKV_K8S_43=Falco image is pinned to a specific release tag; digest pinning not enforced in this environment.
-  labels:
-    app.kubernetes.io/name: falco
-    app.kubernetes.io/part-of: secureflow-observability
+  name: auth-db
+  namespace: secureflow
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: falco
+      svc: auth-db
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: falco
-        app.kubernetes.io/part-of: secureflow-observability
+        svc: auth-db
     spec:
-      serviceAccountName: falco
-      hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      tolerations:
-        - operator: Exists
       containers:
-        - name: falco
-          image: falcosecurity/falco:0.44.0
-          imagePullPolicy: Always
-          args:
-            - /usr/bin/falco
-            - --modern-bpf
-            - --cri
-            - /run/containerd/containerd.sock
-            - -c
-            - /etc/falco/falco.yaml
-          securityContext:
-            privileged: true
-            readOnlyRootFilesystem: true
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 768Mi
-          livenessProbe:
-            exec:
-              command:
-                - /usr/bin/falco
-                - --version
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command:
-                - /usr/bin/falco
-                - --version
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 3
-          volumeMounts:
-            - name: falco-config
-              mountPath: /etc/falco/falco.yaml
-              subPath: falco.yaml
-              readOnly: true
-            - name: falco-secureflow-rules
-              mountPath: /etc/falco/rules.d/secureflow_rules.yaml
-              subPath: secureflow_rules.yaml
-              readOnly: true
-            - name: dev-fs
-              mountPath: /host/dev
-              readOnly: true
-            - name: proc-fs
-              mountPath: /host/proc
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr-fs
-              mountPath: /host/usr
-              readOnly: true
-            - name: etc-fs
-              mountPath: /host/etc
-              readOnly: true
-            - name: containerd-socket
-              mountPath: /run/containerd/containerd.sock
-              readOnly: true
-      volumes:
-        - name: falco-config
-          configMap:
-            name: falco-config
-        - name: falco-secureflow-rules
-          configMap:
-            name: falco-secureflow-rules
-        - name: dev-fs
-          hostPath:
-            path: /dev
-        - name: proc-fs
-          hostPath:
-            path: /proc
-        - name: boot-fs
-          hostPath:
-            path: /boot
-        - name: lib-modules
-          hostPath:
-            path: /lib/modules
-        - name: usr-fs
-          hostPath:
-            path: /usr
-        - name: etc-fs
-          hostPath:
-            path: /etc
-        - name: containerd-socket
-          hostPath:
-            path: /run/containerd/containerd.sock
-            type: Socket
+        - name: redacted
+          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c    # CK-03 — no digest pinning.
+          env:
+            - name: POSTGRES_DB
+              value: authdb
+            - name: POSTGRES_USER
+              value: authuser
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: AUTH_DB_PASSWORD
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+  namespace: secureflow
+spec:
+  selector:
+    svc: auth-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-db
+  namespace: secureflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      svc: transaction-db
+  template:
+    metadata:
+      labels:
+        svc: transaction-db
+    spec:
+      containers:
+        - name: redacted
+          image: redacted:14@sha256:a209aced4fa19381231fae4d9a4c5816f7691294f13572f8bddc082ba32e1c7c
+          env:
+            - name: POSTGRES_DB
+              value: transactiondb
+            - name: POSTGRES_USER
+              value: txuser
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: TX_DB_PASSWORD
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-db
+  namespace: secureflow
+spec:
+  selector:
+    svc: transaction-db
+  ports:
+    - port: 5432
+      targetPort: 5432

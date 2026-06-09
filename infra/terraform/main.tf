@@ -71,15 +71,9 @@ module "iam" {
 }
 
 module "s3" {
-  source             = "./modules/s3"
-  project            = var.project
-  region             = var.region
-  replication_region = var.replication_region
-
-  providers = {
-    aws           = aws
-    aws.secondary = aws.secondary
-  }
+  source  = "./modules/s3"
+  project = var.project
+  region  = var.region
 }
 
 module "eks" {

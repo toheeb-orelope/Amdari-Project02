@@ -25,16 +25,14 @@ spec:
           {{- end }}
     spec:
       serviceAccountName: auth-service
-      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
+        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: auth-service
-          image: secureflow/auth-service:v1.0.0@sha256:8b2f7cf3b6b8cf7a61e1a7a8783f1792a01eaf5b4cd67df60ed2a0b5b3b8f9a2
-          imagePullPolicy: Always
+          image: secureflow/auth-service:v1.0.0
           ports:
             - containerPort: 5001
           envFrom:

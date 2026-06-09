@@ -24,16 +24,14 @@ spec:
           {{- end }}
     spec:
       serviceAccountName: transaction-service
-      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
+        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: transaction-service
-          image: secureflow/transaction-service:v1.0.0@sha256:3d0f4f2798f07c62f05f0839ff9c853f8a58650d9a14f06237ecbbd29d9e6f0a
-          imagePullPolicy: Always
+          image: secureflow/transaction-service:v1.0.0
           ports:
             - containerPort: 5002
           envFrom:
