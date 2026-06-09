@@ -75,67 +75,6 @@ resource "aws_iam_role_policy" "app_inline" {
   })
 }
 
-# IAM role for S3 replication
-resource "aws_iam_role" "replication" {
-  name = "${var.project}-s3-replication-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "s3.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "replication" {
-  name = "${var.project}-s3-replication-policy"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetReplicationConfiguration",
-          "s3:ListBucket",
-          "s3:GetBucketVersioning",
-          "s3:GetBucketLocation"
-        ]
-        Resource = [aws_s3_bucket.artifacts.arn]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObjectVersionForReplication",
-          "s3:GetObjectVersionAcl",
-          "s3:GetObjectVersionTagging"
-        ]
-        Resource = "${aws_s3_bucket.artifacts.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:ReplicateObject",
-          "s3:ReplicateDelete",
-          "s3:ReplicateTags"
-        ]
-        Resource = "${aws_s3_bucket.artifacts_replica.arn}/*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "replication" {
-  role       = aws_iam_role.replication.name
-  policy_arn = aws_iam_policy.replication.arn
-}
-
 output "eks_node_role_arn" {
   value = aws_iam_role.eks_node.arn
 }

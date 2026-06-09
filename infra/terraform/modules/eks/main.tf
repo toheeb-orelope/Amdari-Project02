@@ -80,7 +80,7 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = var.private_subnet_ids # IV-10
     endpoint_private_access = true                   # IV-10
     endpoint_public_access  = false                  # IV-10
-    public_access_cidrs     = [var.my_cidr_block]          # IV-10
+    public_access_cidrs     = [var.my_cidr_block]    # IV-10
   }
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
   encryption_config {

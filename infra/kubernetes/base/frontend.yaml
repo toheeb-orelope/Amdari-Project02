@@ -22,9 +22,16 @@ spec:
           {{- end }}
     spec:
       serviceAccountName: frontend
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
-          image: secureflow/frontend:v1.0.0   # CK-06
+          image: secureflow/frontend:v1.0.0@sha256:5c5f7f2b3a54bb4ec19cf9f2d0f8a7e42043a7f3a174f9c41df70d5f568f8c55
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           envFrom:
@@ -33,8 +40,6 @@ spec:
           securityContext:
             privileged: false                # CK-04
             allowPrivilegeEscalation: false  # CK-04
-            runAsUser: 1000                    # CK-02
-            runAsNonRoot: true
             readOnlyRootFilesystem: true          # CK-04
             capabilities:
               drop: ["ALL"]                      # CK-04

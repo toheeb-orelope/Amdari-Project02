@@ -1,5 +1,15 @@
 variable "project" { type = string }
 variable "region" { type = string }
+variable "replication_region" { type = string }
+
+terraform {
+  required_providers {
+    aws = {
+      source                = "hashicorp/aws"
+      configuration_aliases = [aws.secondary]
+    }
+  }
+}
 
 # IV-09 — S3 buckets without server-side encryption, with public access blocks
 # disabled, and no versioning. Remediation: add aws_s3_bucket_server_side_encryption_configuration,
@@ -15,6 +25,23 @@ resource "aws_s3_bucket" "s3_access_logs" {
   }
 }
 
+resource "aws_s3_bucket" "s3_access_logs_replica" {
+  provider = aws.secondary
+  bucket   = "${var.project}-s3-access-logs-${var.replication_region}"
+
+  tags = {
+    Purpose = "Centralized S3 access logs replica"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "s3_access_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.s3_access_logs_replica.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_versioning" "s3_access_logs" {
   bucket = aws_s3_bucket.s3_access_logs.id
   versioning_configuration {
@@ -24,6 +51,16 @@ resource "aws_s3_bucket_versioning" "s3_access_logs" {
 
 resource "aws_s3_bucket_public_access_block" "s3_access_logs" {
   bucket = aws_s3_bucket.s3_access_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_public_access_block" "s3_access_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.s3_access_logs_replica.id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -98,6 +135,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "s3_access_logs" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "s3_access_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.s3_access_logs_replica.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${var.project}-artifacts"
 
@@ -106,9 +154,26 @@ resource "aws_s3_bucket" "artifacts" {
   }
 }
 
+resource "aws_s3_bucket" "artifacts_replica" {
+  provider = aws.secondary
+  bucket   = "${var.project}-artifacts-${var.replication_region}"
+
+  tags = {
+    Purpose = "CI/CD artifacts and SBOMs replica"
+  }
+}
+
 # Versioning for artifacts (important for immutable artifacts)
 resource "aws_s3_bucket_versioning" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "artifacts_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.artifacts_replica.id
   versioning_configuration {
     status = "Enabled"
   }
@@ -195,6 +260,27 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_public_access_block" "artifacts_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.artifacts_replica.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.artifacts_replica.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 # Logging for artifacts bucket (to dedicated log bucket)
 resource "aws_s3_bucket_logging" "artifacts" {
   bucket        = aws_s3_bucket.artifacts.id
@@ -210,9 +296,26 @@ resource "aws_s3_bucket" "audit_logs" {
   }
 }
 
+resource "aws_s3_bucket" "audit_logs_replica" {
+  provider = aws.secondary
+  bucket   = "${var.project}-audit-logs-${var.replication_region}"
+
+  tags = {
+    Purpose = "Falco / Vault audit output replica"
+  }
+}
+
 # Versioning for audit logs (important for immutable logs)
 resource "aws_s3_bucket_versioning" "audit_logs" {
   bucket = aws_s3_bucket.audit_logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "audit_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.audit_logs_replica.id
   versioning_configuration {
     status = "Enabled"
   }
@@ -290,6 +393,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "audit_logs" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "audit_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.audit_logs_replica.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 
 # Public access block for audit logs
 resource "aws_s3_bucket_public_access_block" "audit_logs" {
@@ -299,6 +413,147 @@ resource "aws_s3_bucket_public_access_block" "audit_logs" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_public_access_block" "audit_logs_replica" {
+  provider = aws.secondary
+  bucket   = aws_s3_bucket.audit_logs_replica.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_iam_role" "replication" {
+  name = "${var.project}-s3-replication-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "s3.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_policy" "replication" {
+  name = "${var.project}-s3-replication-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetReplicationConfiguration",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.s3_access_logs.arn,
+          aws_s3_bucket.artifacts.arn,
+          aws_s3_bucket.audit_logs.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObjectVersionForReplication",
+          "s3:GetObjectVersionAcl",
+          "s3:GetObjectVersionTagging"
+        ]
+        Resource = [
+          "${aws_s3_bucket.s3_access_logs.arn}/*",
+          "${aws_s3_bucket.artifacts.arn}/*",
+          "${aws_s3_bucket.audit_logs.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ReplicateObject",
+          "s3:ReplicateDelete",
+          "s3:ReplicateTags"
+        ]
+        Resource = [
+          "${aws_s3_bucket.s3_access_logs_replica.arn}/*",
+          "${aws_s3_bucket.artifacts_replica.arn}/*",
+          "${aws_s3_bucket.audit_logs_replica.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "replication" {
+  role       = aws_iam_role.replication.name
+  policy_arn = aws_iam_policy.replication.arn
+}
+
+resource "aws_s3_bucket_replication_configuration" "s3_access_logs" {
+  role   = aws_iam_role.replication.arn
+  bucket = aws_s3_bucket.s3_access_logs.id
+
+  rule {
+    id     = "replicate-s3-access-logs"
+    status = "Enabled"
+
+    destination {
+      bucket        = aws_s3_bucket.s3_access_logs_replica.arn
+      storage_class = "STANDARD"
+    }
+  }
+
+  depends_on = [
+    aws_s3_bucket_versioning.s3_access_logs,
+    aws_s3_bucket_versioning.s3_access_logs_replica,
+    aws_iam_role_policy_attachment.replication
+  ]
+}
+
+resource "aws_s3_bucket_replication_configuration" "artifacts" {
+  role   = aws_iam_role.replication.arn
+  bucket = aws_s3_bucket.artifacts.id
+
+  rule {
+    id     = "replicate-artifacts"
+    status = "Enabled"
+
+    destination {
+      bucket        = aws_s3_bucket.artifacts_replica.arn
+      storage_class = "STANDARD"
+    }
+  }
+
+  depends_on = [
+    aws_s3_bucket_versioning.artifacts,
+    aws_s3_bucket_versioning.artifacts_replica,
+    aws_iam_role_policy_attachment.replication
+  ]
+}
+
+resource "aws_s3_bucket_replication_configuration" "audit_logs" {
+  role   = aws_iam_role.replication.arn
+  bucket = aws_s3_bucket.audit_logs.id
+
+  rule {
+    id     = "replicate-audit-logs"
+    status = "Enabled"
+
+    destination {
+      bucket        = aws_s3_bucket.audit_logs_replica.arn
+      storage_class = "STANDARD"
+    }
+  }
+
+  depends_on = [
+    aws_s3_bucket_versioning.audit_logs,
+    aws_s3_bucket_versioning.audit_logs_replica,
+    aws_iam_role_policy_attachment.replication
+  ]
 }
 
 # Logging for audit_logs bucket (to dedicated log bucket)
