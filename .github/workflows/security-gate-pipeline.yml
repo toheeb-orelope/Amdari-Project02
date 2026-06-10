@@ -415,7 +415,6 @@ jobs:
               --key env://COSIGN_PRIVATE_KEY \
               --type spdx \
               --predicate "$sbom_file" \
-              --predicate-content-type "application/spdx+json" \
               "$image_digest"
 
             echo "Verifying ${image_digest}"
