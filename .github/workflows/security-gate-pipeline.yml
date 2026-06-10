@@ -400,8 +400,23 @@ jobs:
             echo "Generating SPDX SBOM for ${image_digest}"
             trivy image --format spdx-json --output "$sbom_file" "$image_digest"
 
+            if ! jq empty "$sbom_file" 2>/dev/null; then
+              echo "Invalid SPDX JSON generated for ${image_digest}."
+              exit 1
+            fi
+
+            if [ ! -s "$sbom_file" ]; then
+              echo "SBOM file is empty for ${image_digest}."
+              exit 1
+            fi
+
             echo "Attaching SPDX SBOM attestation to ${image_digest}"
-            cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type spdx --predicate "$sbom_file" "$image_digest"
+            cosign attest --yes \
+              --key env://COSIGN_PRIVATE_KEY \
+              --type spdx \
+              --predicate "$sbom_file" \
+              --predicate-content-type "application/spdx+json" \
+              "$image_digest"
 
             echo "Verifying ${image_digest}"
             cosign verify --key cosign.pub "$image_digest"
