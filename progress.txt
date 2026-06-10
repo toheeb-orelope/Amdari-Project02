@@ -1,1 +1,26 @@
-All the terraform rem 
+Start a local cluster:
+minikube start
+Add Helm repos:
+helm repo add falcosecurity https://falcosecurity.github.io/charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+Install Falco:
+helm install falco falcosecurity/falco \
+  --namespace falco \
+  --create-namespace
+Install Grafana locally:
+helm install grafana grafana/grafana \
+  --namespace observability \
+  --create-namespace
+Get Grafana password:
+kubectl get secret grafana -n observability -o jsonpath="{.data.admin-password}" | base64 -d
+Port-forward Grafana:
+kubectl port-forward svc/grafana -n observability 3000:80
+Then open:
+
+http://localhost:3000
+For Falco logs:
+
+kubectl logs -n falco -l app.kuber
+
+HzaaTo8FGCYVhRpWCzNN6x1011yuBdUG3NLFTgXZ
