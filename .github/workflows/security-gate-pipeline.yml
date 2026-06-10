@@ -381,9 +381,13 @@ jobs:
           for service in auth-service frontend transaction-service; do
             image="ghcr.io/${owner}/${repo}-${service}:${GITHUB_SHA}"
 
+            echo "Building ${image}"
             docker build --pull -t "$image" "services/${service}"
+
+            echo "Pushing ${image}"
             docker push "$image"
 
+            echo "Resolving digest for ${image}"
             digest="$(docker buildx imagetools inspect "$image" | awk '/Digest:/ {print $2; exit}')"
             if [ -z "$digest" ]; then
               echo "Unable to resolve digest for ${image}."
@@ -391,6 +395,7 @@ jobs:
             fi
 
             image_digest="${image%:*}@${digest}"
+            echo "Resolved image digest: ${image_digest}"
 
             echo "Signing ${image_digest}"
             cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$image_digest"
@@ -401,16 +406,17 @@ jobs:
             echo "Generating SPDX SBOM for ${image_digest}"
             trivy image --format spdx-json --output "$sbom_file" "$image_digest"
 
-            if ! jq empty "$sbom_file" 2>/dev/null; then
-              echo "Invalid SPDX JSON generated for ${image_digest}."
-              exit 1
-            fi
-
             if [ ! -s "$sbom_file" ]; then
               echo "SBOM file is empty for ${image_digest}."
               exit 1
             fi
 
+            if ! jq empty "$sbom_file" 2>/dev/null; then
+              echo "Invalid SPDX JSON generated for ${image_digest}."
+              exit 1
+            fi
+
+            echo "Compacting SBOM predicate for ${service}"
             jq -c . "$sbom_file" > "$sbom_predicate_file"
 
             echo "Attaching SPDX SBOM attestation to ${image_digest}"
@@ -420,11 +426,16 @@ jobs:
               --predicate "$sbom_predicate_file" \
               "$image_digest"
 
-            echo "Verifying ${image_digest}"
+            echo "Verifying signature for ${image_digest}"
             cosign verify --key cosign.pub "$image_digest"
 
             echo "Verifying SPDX SBOM attestation for ${image_digest}"
-            cosign verify-attestation --key cosign.pub --type spdx "$image_digest" > "${service}-sbom-attestation.json"
+            cosign verify-attestation \
+              --key cosign.pub \
+              --type spdx \
+              "$image_digest" > "${service}-sbom-attestation.json"
+
+            echo "Done: ${service}"
           done
 
       - name: Upload SBOM and attestation verification artifacts
@@ -433,4 +444,5 @@ jobs:
           name: signed-image-sboms
           path: |
             *-sbom.spdx.json
+            *-sbom-predicate.spdx.json
             *-sbom-attestation.json
