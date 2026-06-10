@@ -337,112 +337,142 @@ jobs:
           exit 1
 
   sign-and-verify-images:
-    name: Sign and Verify Images
+    name: Stage 6 - Image Signing and SBOM
     runs-on: ubuntu-latest
     needs: security-gate
     if: github.event_name != 'pull_request' && needs.security-gate.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.0
+        uses: sigstore/cosign-installer@v3.7.0
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.3.1
-        with:
-          version: v0.71.0
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build, push, sign, and verify hardened images
-        env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-          COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
-          TRIVY_NO_PROGRESS: "true"
         run: |
-          if [ -z "$COSIGN_PRIVATE_KEY" ] || [ -z "$COSIGN_PASSWORD" ] || [ -z "$COSIGN_PUBLIC_KEY" ]; then
-            echo "Missing COSIGN_PRIVATE_KEY, COSIGN_PASSWORD, or COSIGN_PUBLIC_KEY configuration."
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
 
-          printf "%s" "$COSIGN_PUBLIC_KEY" > cosign.pub
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: Build and push hardened images
+        id: build
+        run: |
           owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           repo="$(basename "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
 
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "repo=${repo}" >> "$GITHUB_OUTPUT"
+
           for service in auth-service frontend transaction-service; do
-            image="ghcr.io/${owner}/${repo}-${service}:${GITHUB_SHA}"
+            image="ghcr.io/${owner}/${repo}-${service}:hardened"
 
             echo "Building ${image}"
             docker build --pull -t "$image" "services/${service}"
 
             echo "Pushing ${image}"
             docker push "$image"
+          done
 
-            echo "Resolving digest for ${image}"
-            digest="$(docker buildx imagetools inspect "$image" | awk '/Digest:/ {print $2; exit}')"
-            if [ -z "$digest" ]; then
-              echo "Unable to resolve digest for ${image}."
-              exit 1
-            fi
+      - name: Generate SPDX SBOM per image
+        run: |
+          owner="${{ steps.build.outputs.owner }}"
+          repo="${{ steps.build.outputs.repo }}"
 
-            image_digest="${image%:*}@${digest}"
-            echo "Resolved image digest: ${image_digest}"
-
-            echo "Signing ${image_digest}"
-            cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$image_digest"
-
+          for service in auth-service frontend transaction-service; do
+            image="ghcr.io/${owner}/${repo}-${service}:hardened"
             sbom_file="${service}-sbom.spdx.json"
-            sbom_predicate_file="${service}-sbom-predicate.spdx.json"
 
-            echo "Generating SPDX SBOM for ${image_digest}"
-            trivy image --format spdx-json --output "$sbom_file" "$image_digest"
+            echo "Generating SPDX SBOM for ${image}"
+            trivy image --format spdx-json --output "$sbom_file" "$image"
 
             if [ ! -s "$sbom_file" ]; then
-              echo "SBOM file is empty for ${image_digest}."
+              echo "SBOM file is empty for ${image}."
               exit 1
             fi
 
             if ! jq empty "$sbom_file" 2>/dev/null; then
-              echo "Invalid SPDX JSON generated for ${image_digest}."
+              echo "Invalid SPDX JSON generated for ${image}."
+              exit 1
+            fi
+          done
+
+      - name: Sign images and attach SBOM attestations
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ] || [ -z "$COSIGN_PASSWORD" ]; then
+            echo "Missing COSIGN_PRIVATE_KEY or COSIGN_PASSWORD configuration."
+            exit 1
+          fi
+
+          owner="${{ steps.build.outputs.owner }}"
+          repo="${{ steps.build.outputs.repo }}"
+
+          printf "%s" "$COSIGN_PRIVATE_KEY" > cosign.key
+
+          for service in auth-service frontend transaction-service; do
+            image="ghcr.io/${owner}/${repo}-${service}:hardened"
+            image_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image")"
+
+            if [ -z "$image_digest" ]; then
+              echo "Unable to resolve digest for ${image}."
               exit 1
             fi
 
-            echo "Compacting SBOM predicate for ${service}"
-            jq -c . "$sbom_file" > "$sbom_predicate_file"
+            echo "Signing ${image_digest}"
+            cosign sign --yes --key cosign.key "$image_digest"
+
+            sbom_file="${service}-sbom.spdx.json"
 
             echo "Attaching SPDX SBOM attestation to ${image_digest}"
-            cosign attest --yes \
-              --key env://COSIGN_PRIVATE_KEY \
-              --type spdx \
-              --predicate "$sbom_predicate_file" \
-              "$image_digest"
+            cosign attest --yes --key cosign.key --predicate "$sbom_file" --type spdxjson "$image_digest"
 
-            echo "Verifying signature for ${image_digest}"
-            cosign verify --key cosign.pub "$image_digest"
-
-            echo "Verifying SPDX SBOM attestation for ${image_digest}"
-            cosign verify-attestation \
-              --key cosign.pub \
-              --type spdx \
-              "$image_digest" > "${service}-sbom-attestation.json"
-
-            echo "Done: ${service}"
+            echo "Signed and attested: ${service}"
           done
 
-      - name: Upload SBOM and attestation verification artifacts
+          rm -f cosign.key
+
+      - name: Verify signatures
+        env:
+          COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+        run: |
+          if [ -z "$COSIGN_PUBLIC_KEY" ]; then
+            echo "Missing COSIGN_PUBLIC_KEY configuration."
+            exit 1
+          fi
+
+          owner="${{ steps.build.outputs.owner }}"
+          repo="${{ steps.build.outputs.repo }}"
+
+          printf "%s" "$COSIGN_PUBLIC_KEY" > cosign.pub
+
+          for service in auth-service frontend transaction-service; do
+            image="ghcr.io/${owner}/${repo}-${service}:hardened"
+            image_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image")"
+
+            if [ -z "$image_digest" ]; then
+              echo "Unable to resolve digest for ${image}."
+              exit 1
+            fi
+
+            echo "Verifying ${service}: ${image_digest}"
+            cosign verify --key cosign.pub "$image_digest"
+          done
+
+      - name: Upload SBOMs as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: signed-image-sboms
-          path: |
-            *-sbom.spdx.json
-            *-sbom-predicate.spdx.json
-            *-sbom-attestation.json
+          name: image-sboms
+          path: "*-sbom.spdx.json"
