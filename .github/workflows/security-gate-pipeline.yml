@@ -390,12 +390,13 @@ jobs:
               exit 1
             fi
 
-            image_digest="${image%@*}@${digest}"
+            image_digest="${image%:*}@${digest}"
 
             echo "Signing ${image_digest}"
             cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$image_digest"
 
             sbom_file="${service}-sbom.spdx.json"
+            sbom_predicate_file="${service}-sbom-predicate.spdx.json"
 
             echo "Generating SPDX SBOM for ${image_digest}"
             trivy image --format spdx-json --output "$sbom_file" "$image_digest"
@@ -410,11 +411,13 @@ jobs:
               exit 1
             fi
 
+            jq -c . "$sbom_file" > "$sbom_predicate_file"
+
             echo "Attaching SPDX SBOM attestation to ${image_digest}"
             cosign attest --yes \
               --key env://COSIGN_PRIVATE_KEY \
               --type spdx \
-              --predicate "$sbom_file" \
+              --predicate "$sbom_predicate_file" \
               "$image_digest"
 
             echo "Verifying ${image_digest}"
