@@ -1,5 +1,5 @@
 .env
 vulnerable_code.txt
 progress.txt
-/local
-/docs/grafana
+/infra/kubernetes/local/
+/docs/grafana/
