@@ -308,6 +308,46 @@
       ],
       "title": "OWASP ZAP DAST Findings Over Time",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum by (job) (count_over_time({namespace=\"secureflow\", job=~\"secureflow/(auth-service|frontend|transaction-service)\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Application Service Log Volume (Live)",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

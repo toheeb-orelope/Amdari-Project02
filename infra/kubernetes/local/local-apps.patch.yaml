@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: secureflow
+spec:
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "false"
+    spec:
+      containers:
+        - name: auth-service
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: auth-db
+            - name: DB_NAME
+              value: authdb
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: AUTH_DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: AUTH_DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: JWT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-service
+  namespace: secureflow
+spec:
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "false"
+    spec:
+      containers:
+        - name: transaction-service
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: transaction-db
+            - name: DB_NAME
+              value: transactiondb
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: TRANSACTION_DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: TRANSACTION_DB_PASSWORD
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: secureflow
+spec:
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "false"
+    spec:
+      containers:
+        - name: frontend
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SESSION_SECRET
+              valueFrom:
+                configMapKeyRef:
+                  name: secureflow-config
+                  key: SESSION_SECRET
